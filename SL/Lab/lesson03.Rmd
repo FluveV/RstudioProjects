@@ -1,0 +1,555 @@
+---
+title: 'Statistical Learning, Lab #3: Resampling & stepwise methods'
+date: 'April 5, 2023'
+author: 'Marco Chierici'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+    theme: readable
+    toc: true
+    toc_float: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE,
+                      message=FALSE,
+                      tidy.opts=list(width.cutoff = 60),
+                      tidy = TRUE)
+```
+
+# Resampling
+
+[In the textbook: Section 5.3]
+
+## The validation set approach
+
+For introducing the concepts of this lesson, we will be using the `Auto` data set, consisting of 392 observations (cars) and 9 variables: gas mileage (mpg), number of cylinders, engine displacement (cubic inches), horsepower, weight (lbs.), 0-60 mph acceleration (sec.), year, origin (1=USA, 2=Europe, 3=Japan), and name.
+
+As usual, we load the data set and start viewing it.
+
+```{r}
+library(tidyverse)
+library(ISLR2)
+library(conflicted)
+data(Auto)
+as_tibble(Auto)
+```
+
+We now split the data in two partitions of equal size, randomly selecting a subset of 196 observations out of the total 392 (50% split).
+
+```{r}
+# setting a seed for reproducibility - can be any integer of your choice
+set.seed(25)
+n <- nrow(Auto)
+train_size <- 0.5
+train <- sample(n, train_size * n)
+```
+
+Now, `Auto[train, ]` is our **training set**, while `Auto[-train, ]` is our **validation set**.
+
+*Hint:* note how, differently from the textbook, I used `nrow(Auto)` instead of 392 in the `sample()` function, and `0.5*nrow(Auto)` instead of 196. This does not change the results, of course, but it is a very good practice to use variables instead of hardcoded numbers, whenever we can. Imagine you prepare your code on a specific dataset, hardcoding variables like the number of observations. If for some reason your dataset changes (and there is always a reason: e.g., you realize you have to filter out some data), you have to manually change all the variables depending on it. And this is really bad. So, use variables!
+
+Back on track. Now that we have a `train` partition, we fit a linear regression model on it in order to predict gas mileage from horsepower:
+
+```{r}
+lm.fit <- lm(mpg ~ horsepower, data=Auto, subset=train)
+```
+
+Then we `predict()` the response for all `r nrow(Auto)` observations and compute the MSE of the observations in the validation set:
+
+```{r}
+# predicted mpg
+mpg.pred <- predict(lm.fit, Auto)
+mean((Auto$mpg - mpg.pred)[-train]^2)   #MSE
+```
+
+> Note: if we follow the textbook and perform `attach(Auto)`, this creates an unfortunate conflict between the *predictor* named `mpg` and the *dataset* `mpg`, which is part of `ggplot2` (automatically loaded by `library(tidyverse)` at the beginning of this notebook). So the command `mean((mpg - mpg.pred)[-train]^2)` may output a dataframe and not a single number. To fix the problem, it is better to explicitly refer to the predictor `mpg` using `Auto$mpg`; even better and safer, we can also avoid the `attach(Auto)` completely.
+
+Estimate now the validation MSE for quadratic and cubic regressions:
+
+```{r}
+lm.fit2 <- lm(mpg ~ poly(horsepower, 2), data=Auto, subset=train)
+mpg.pred2 <- predict(lm.fit2, Auto)
+# you can use this condensed notation as well
+mean((Auto$mpg - mpg.pred2)[-train]^2)
+
+lm.fit3 <- lm(mpg ~ poly(horsepower, 3), data=Auto, subset=train)
+mpg.pred3 <- predict(lm.fit3, Auto)
+mean((Auto$mpg - mpg.pred3)[-train]^2)
+```
+
+What about using a different seed, thus a different partition of the observations?
+
+```{r}
+set.seed(2)
+train <- sample(n, train_size * n)
+
+# linear
+lm.fit <- lm(mpg ~ horsepower, data=Auto, subset=train)
+mpg.pred <- predict(lm.fit, Auto)
+mean((Auto$mpg - mpg.pred)[-train]^2)
+
+# quadratic
+lm.fit2 <- lm(mpg ~ poly(horsepower, 2), data=Auto, subset=train)
+mpg.pred2 <- predict(lm.fit2, Auto)
+mean((Auto$mpg - mpg.pred2)[-train]^2)
+
+# cubic
+lm.fit3 <- lm(mpg ~ poly(horsepower, 3), data=Auto, subset=train)
+mpg.pred3 <- predict(lm.fit3, Auto)
+mean((Auto$mpg - mpg.pred3)[-train]^2)
+```
+
+We see somewhat different errors - as we could expect. The message here is that the general behaviour is the same: quadratic is better than linear, but cubic is not necessarily better than quadratic.
+
+*Hint:* if you're aiming for improved readability and don't mind writing a couple more lines of code, here is a better way to write the above models fit & predict.
+
+```{r}
+# cubic (better readability)
+lm.fit3 <- lm(mpg ~ poly(horsepower, 3), data=Auto, subset=train)
+# outcome variable on validation set
+mpg.valid <- Auto$mpg[-train]
+# validation set
+Auto.valid <- Auto[-train, ]
+mpg.pred <- predict(lm.fit3, Auto.valid) # predictions
+mean((mpg.valid - mpg.pred)^2)
+```
+
+### Data splitting code - revisited
+
+The `rsample` library (part of `tidymodels`) provides an alternative way to perform the data splitting with the function `initial_split(data, prop, strata)`:
+
+-   `data` - the dataframe or tibble to be split;
+-   `prop` - the proportion of `data` for the training set;
+-   `strata` - a variable in `data` used for stratified sampling (default: NULL): if numeric, it is binned into quartiles.
+
+The output of `initial_split()` is an object containing information about which observation belongs to which set, not the actual training and test sets.
+
+```{r, live=TRUE}
+library(rsample)
+set.seed(1)
+# here we stratify by the mpg variable (which will be binned )
+my_split <- initial_split(Auto, prop=train_size, strata=mpg)
+```
+
+The training and test sets are obtained using two more functions from the `rsample` library: `training()` and `testing()`.
+
+```{r, live=TRUE}
+df_train <- training(my_split)
+df_test <- testing(my_split)
+dim(df_train)
+dim(df_test)
+```
+
+## Leave-one-out cross-validation
+
+In this section, we are going to fit a linear regression model using a leave-one-out cross-validation (LOOCV) schema.
+
+Previously (labs 1-2), we used `glm()` to create a logistic regression model, using the `family="binomial"` argument, and a Poisson regression model, with the `family=poisson` argument. Note that if you do not pass any `family` argument, it defaults to linear regression (i.e., same as `lm()`).
+
+We are thus using `glm()` instead of `lm()` because we can take advantage of the function `cv.glm()` (`boot` library), which computes the cross-validation prediction error for generalized linear models.
+
+First, quick check: `glm()` with default `family` and `lm()` are equivalent,
+
+```{r, live=TRUE}
+glm.fit <- glm(mpg ~ horsepower, data=Auto)
+coef(glm.fit)
+
+```
+
+```{r, live=TRUE}
+lm.fit <- glm(mpg ~ horsepower, data=Auto)  #without family=... glm is equal to lm.
+coef(glm.fit)
+```
+
+Now compute the leave-one-out prediction error for your linear regression model:
+
+```{r, live=TRUE}
+cv.err <- boot::cv.glm(Auto, glm.fit)
+```
+
+The output of `cv.glm()` is a list with many elements. Let's see them:
+
+```{r, live=TRUE}
+names(cv.err)
+```
+
+We could also check with `?cv.glm`. Here is an excerpt from the help:
+
+```{r, live=TRUE}
+cv.err$delta
+```
+
+-   `delta`: A vector of length two. The first component is the raw cross-validation estimate of prediction error. The second component is the adjusted cross-validation estimate. The adjustment is designed to compensate for the bias introduced by not using leave-one-out cross-validation.
+
+In this case, the two numbers in `delta` are identical up to the third decimal and represent the LOOCV statistic.
+
+*Note:* you could also implement LOOCV by yourself with a `for` loop in pure R.
+
+```{r, live=TRUE}
+# placeholder for storing the i-th prediction
+# (n is the number of observations in the Auto data set)
+preds <- rep(0, n)
+for (i in 1:n) {
+  dataf.test <- Auto[i,]
+  dataf.train <- Auto[-i,]
+  glm.fit <- glm(mpg ~ horsepower, data=dataf.train)
+  preds[i] <- predict(glm.fit, dataf.test)
+}
+mean((Auto$mpg - preds)^2) #the same as delta
+```
+
+### Model selection: example
+
+In the following, we use a *for* loop to fit polynomial regression models for polynomials of order 1 to 10, compute the *i*-th LOOCV error, and store it into a vector. We also monitor the time taken for the whole procedure by saving the system time before and after the block of code, and taking the difference:
+
+```{r, eval=FALSE}
+start.time <- Sys.time()
+# ... code block here ...
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+```{r, live=TRUE}
+start.time.loocv <- Sys.time()
+deg <- 10 # max polynomial degree
+cv.error <- rep(0, deg) # initialise error vector
+### code here
+for (i in 1:deg) {
+  glm.fit <- glm(mpg ~ poly(horsepower, i), data=Auto)
+  cv.error[i] <- boot::cv.glm(Auto, glm.fit)$delta[1]
+}
+
+
+end.time.loocv <- Sys.time()
+time.loocv <- end.time.loocv - start.time.loocv
+print(time.loocv)
+```
+
+For the record, it took me `r round(time.loocv, 2)` seconds to complete: your mileage may vary.
+
+Let's have a look at the ten LOOCV errors:
+
+```{r}
+plot(cv.error, type='l')
+```
+
+This plot confirms what we figured out before: we see a sharp drop of the prediction error between linear and quadratic fits, but no clear improvement using higher-order polynomials.
+
+## k-Fold Cross-Validation
+
+Unlike LOOCV, the k-fold CV does not explore all of the possible splits of the original data: it randomly splits the data set into $k$ equally sized partitions, keeping one as validation set and $k-1$ as training set. The procedure is repeated $k$ times, so to use each of the $k$ partitions as validation set. A single metric (e.g., classification error, MSE, ...) is produced by averaging over the results on the $k$ sets.
+
+We can run a k-fold CV with `cv.glm()` by using its argument `K`. By default, `K` is equal to the number of observations, which produces a LOOCV.
+
+We set `K=10` and compute 10-fold CV error estimates for polynomial fits of orders one to ten.
+
+```{r}
+# this time, setting the seed is needed because we are using a K-fold CV and not a LOOCV
+set.seed(17)  #LOOCV doesn't require it, as it goes through all the data, but this does
+deg <- 10
+cv.error.k <- rep(0, deg) # initialization
+```
+
+```{r, live=TRUE}
+start.time.cv <- Sys.time()
+### code here
+
+for (i in 1:deg) {
+  glm.fit <- glm(mpg ~ poly(horsepower, i), data=Auto)
+  cv.error.k[i] <- boot::cv.glm(Auto, glm.fit, K=10)$delta[1]
+}
+
+end.time.cv <- Sys.time()
+time.cv <- end.time.cv - start.time.cv
+
+```
+
+This time, the procedure took me `r round(time.cv, 2)` seconds: it was way faster than the LOOCV, precisely because this is a **non-exhaustive** cross-validation.
+
+```{r}
+plot(cv.error.k, type='l')
+```
+
+# Subset selection methods
+
+[In the textbook: Section 6.5]
+
+## The Hitters data set
+
+In this part we are going to apply different model selection techniques to the `Hitters` data frame, containing 322 observations of major league baseball players on 20 variables, collected from the 1986 and 1987 seasons.
+
+The goal is to predict a player's `Salary` based on previous year's statistics.
+
+```{r}
+library(tibble)
+library(tidyverse)
+library(ISLR)
+dataf <- as_tibble(Hitters)
+```
+
+Some observations lack the `Salary` value (e.g., it is `NA`). For example, this is true for the very first entry. But what if there are more?
+
+```{r}
+sum(is.na(dataf$Salary))
+```
+
+Next, we'll remove those observations. You can achieve this in multiple ways: either you remove the `dataf` rows where `is.na(dataf$Salary)`, or you use the `na.omit()` function on the whole data frame (the latter will remove the rows having missing values in **any** variable). You can also use dplyr's `filter()` function:
+
+```{r eval=FALSE}
+dataf <- dataf[!is.na(dataf$Salary), ]
+# in our case, the following is equivalent, as we only have NAs in dataf$Salary:
+# dataf <- na.omit(dataf)
+```
+
+```{r}
+# dplyr's equivalent:
+dataf <- dataf %>% dplyr::filter(!is.na(Salary))
+```
+
+## Best subset selection
+
+This approach is based on the simple idea to compare all models containing 1 predictor, all models containing 2 predictors, and so on. The "best" model with its corresponding subset size $k$ is then selected, according a number of indicators such as $C_p$, BIC, $R^2$.
+
+The approach is implemented by the `regsubsets()` function (`leaps` library), with the same syntax as `lm()`. The function returns the best model containing a given number of variables ("best" according to RSS).
+
+```{r, live=TRUE}
+# if needed:
+
+library(leaps)
+regfit.full <- regsubsets(Salary ~ ., data=dataf)
+summary(regfit.full)
+
+```
+
+Included variables are marked with an asterisk in the summary above. For example, we have a one-variable model with `CRBI` and one two-variable model with `CRBI` and `Hits`. The function default is to output models up to 8 variables, but we can choose a different number. Let's see an example with 19 variables, this time saving the summary so we can look into it:
+
+```{r, live=TRUE}
+regfit.full <- regsubsets(Salary ~ ., data=dataf, nvmax=19)
+reg.summary <- summary(regfit.full)
+names(reg.summary)
+plot(reg.summary$rsq) #this increases to higher degree
+plot(reg.summary$rss) #this decreases to higher degree
+```
+
+Notice how in `reg.summary` we find $R^2$ (`rsq`), $RSS$, adjusted $R^2$ (`adjr2`), Mallow's $C_p$ (`cp`), $BIC$. These can be used to support the selection of a "best" overall model. For example, $R^2$ increases from 32% (one-variable) to 55% (all variables) - try inspecting `reg.summary$rsq`. The theory says that $RSS$ decreases monotonically with the number of included variables, and that $R^2$ increases monotonically (textbook, 6.1.1, page 227) - this means we cannot rely on $RSS$ or $R^2$ alone for selecting the optimal model.
+
+The quickest way to assess these statistics is by plotting them for all of the models. First we plot $RSS$ and adjusted $R^2$ side by side:
+
+```{r}
+# put the subsequent plots in a 1 x 2 matrix
+op <- par(mfrow=c(1, 2))
+plot(reg.summary$rss, xlab="Number of Variables", ylab="RSS", type="l")
+plot(reg.summary$adjr2, xlab="Number of Variables", ylab="Adjusted RSq", type="l")
+# let's mark the model with the largest adjr2:
+# which.max() identifies the location where a vector is maximum
+nv <- which.max(reg.summary$adjr2)
+# points() acts just like plot() except it overlays points on an existing plot
+points(nv, reg.summary$adjr2[nv], col="red", cex=2, pch=20)
+# reset the mfrow graphical parameter
+par(op)
+```
+
+Then we plot $C_p$ and $BIC$ side by side (in this case, the lower the better so we'll use `which.min()` to find out the corresponding number of variables):
+
+```{r}
+op <- par(mfrow=c(1, 2))
+plot(reg.summary$cp, xlab="Number of Variables", ylab="Cp", type="l")
+# mark the model with the smallest cp
+nv <- which.min(reg.summary$cp)
+points(nv, reg.summary$cp[nv], col="red", cex=2, pch=20)
+
+plot(reg.summary$bic, xlab="Number of Variables", ylab="BIC", type="l")
+nv <- which.min(reg.summary$bic)
+points(nv, reg.summary$bic[nv], col="red", cex=2, pch=20)
+par(op)
+```
+
+There is also a way to plot a table of models showing which variables are in each model, ranked according to different statistics. This is possible thanks to the built-in `plot()` command of `regsubsets()`. The "best" models are in the upper part of the plots (the statistics are automatically sorted top-to-bottom so to have best-to-worst).
+
+```{r, live=TRUE}
+### code here
+plot(regfit.full, scale="adjr2")   #this could be a QR code lmao imagine how cool it'd be if it redirected you to some place
+#The best model is 11 variable model with the 11 variables that have a black square in the highest AdjR2
+```
+
+This kind of plot is useful when there are more than 10 models involved and thus the table output by `summary(regfit.full)` becomes difficult to read.
+
+```{r, live=TRUE}
+### code here
+plot(regfit.full, scale="Cp") 
+plot(regfit.full, scale="bic") 
+```
+
+Although different models share a BIC $\approx -150$, there is a single six-variable model containing AtBat, Hits, Walks, CRBI, DivisionW, PutOuts (top row in the plot above). The coefficient estimates for this model can be accessed using the `coef()` function:
+
+```{r}
+coef(regfit.full, 6) #6 is the number of variables. You could see this from counting the row with the most black boxes in the previous plots. 
+```
+
+## Forward and backward stepwise selection
+
+When the number of predictors is large, it becomes computationally unfeasible and statistically risky to apply best subset selection: it may take ages to compute (there are $2^p$ models with subsets of $p$ predictors) and there is an increased chance of overfitting and high variance of the coefficient estimates. That's when forward or backward stepwise selection comes handy.
+
+To this end, we can use the same function `regsubsets()` specifying `method="forward"` or `method="backward"`.
+
+```{r, live=TRUE}
+### code here
+regfit.fwd <- regsubsets(Salary ~ ., data=dataf, nvmax=19,
+                         method='forward')
+summary(regfit.fwd)
+```
+
+```{r, live=TRUE}
+### code here
+regfit.bwd <- regsubsets(Salary ~ ., data=dataf, nvmax=19,
+                         method='backward')
+summary(regfit.bwd)
+names(regfit.bwd)
+```
+
+Try comparing the best models obtained with best subset vs. forward selection for increasing number of variables. The models should be identical for best subset and forward selection for 1 to 6 variables (try printing the coefficients for them). With 7-variable models:
+
+```{r}
+coef(regfit.full, 3)
+coef(regfit.fwd, 3)
+
+coef(regfit.full, 7)
+coef(regfit.fwd, 7)
+coef(regfit.bwd, 7)
+```
+
+Not only are the selected variables different, but also the coefficient values.
+
+## Choosing among models: Validation set and Cross-Validation
+
+We'll use again the Validation set and cross-validation approaches that we introduced in practice over the last Lab lesson.
+
+**Important remark**: remember that from now on all model-fitting operations (including variable selection!!) are to be made on the **training** observations only. If you use the full dataset, the resulting error estimates are not going to be accurate (some observations are seen and used twice in training and validation!).
+
+### Validation set
+
+Here's what we are going to do:
+
+1.  split the original data into training and validation sets;
+2.  perform best subset selection on the training set;
+3.  compute the validation error of the best model at each model size and find the optimal number of variables (i.e., minimum validation error);
+4.  perform best subset selection on the original data and select the model with the optimal number of variables found previously.
+
+First off, split the full dataset into a training set and a test set by generating a random TRUE/FALSE vector (TRUE = training set, FALSE otherwise). Remember to set a random seed for reproducibility.
+
+```{r}
+set.seed(1)
+# sampling with replacement
+train <- sample(c(TRUE, FALSE), nrow(dataf), rep=TRUE)
+test <- !train
+```
+
+As before, we perform best subset selection, this time *on the training set*, specifying the maximum number of variables as 19.
+
+```{r}
+nmax <- ncol(dataf) - 1
+regfit.best <- regsubsets(Salary ~ ., data=dataf[train, ], nvmax=nmax)
+```
+
+Now we compute the validation error of the best model, at each model size. Unfortunately, there is no `predict()` method associated to a `regsubsets()` fit, so we'll have to manually compute predictions.
+
+The first thing we do is to create a "model matrix" (i.e., an "X" matrix) from data; then we loop over the number of variables `i`, extracting best model coefficients and multiplying them by the appropriate columns of the model matrix in order to obtain predictions. Finally we compute the MSE.
+
+```{r}
+test.mat <- model.matrix(Salary ~ ., data=dataf[test, ])
+# initialize the vector containing the test MSE
+val.errors <- rep(NA, nmax)
+for(i in 1:nmax) {
+    # get the coefficients
+    coefi <- coef(regfit.best, id=i)
+    # the %*% operator performs matrix multiplication in R
+    pred <- test.mat[, names(coefi)] %*% coefi
+    # compute the MSE
+    val.errors[i] <- mean((dataf$Salary[test] - pred)^2)
+}
+
+val.errors
+nvbest <- which.min(val.errors)
+nvbest
+# coefficients of the best subset model
+coef(regfit.best, nvbest)
+```
+
+To save time later on, when we do a cross-validation, we create right away a custom `predict` method for `regsubsets()`:
+
+```{r}
+predict.regsubsets <- function(object, newdata, id, ...) {
+    # extract the formula used in the call to regsubsets()
+    form <- as.formula(object$call[[2]])
+    mat <- model.matrix(form, newdata)
+    coefi <- coef(object, id=id)
+    xvars <- names(coefi)
+    mat[, xvars] %*% coefi
+}
+```
+
+The function name is not arbitrary: in order to provide the `predict()` method for the original function `regsubsets()`, the name of the custom function has to be `predict.<original function>()`, hence `predict.regsubsets()`. Afterwards, we can call it on a fitted `regsubsets` object by simply using `predict()`: we'll see an example later on.
+
+We conclude the Validation set approach demonstration by performing best subset selection on the full data and selecting the best `r nvbest`-variable model. See how this worked? We used the Validation set approach to find the *optimal number of variables*, which we are going to use with the best subset selection on the full data.
+
+```{r}
+regfit.best <- regsubsets(Salary ~ ., data=dataf, nvmax=nmax)
+coef(regfit.best, nvbest)
+```
+
+Notice how the best `r nvbest`-variable model on the full data has different variables than the best `r nvbest`-variable model restricted on the training set.
+
+### Cross-validation
+
+We'll use now a $k$-fold cross-validation. Remember that this means we have to perform best subset selection for each of the $k$ training sets.
+
+```{r}
+# we'll do a 10-fold CV
+k <- 10
+# total number of observations
+n <- nrow(dataf)
+set.seed(1)
+# a vector of numbers indicating the i-th fold
+folds <- sample(rep(1:k, length=n))
+# empty matrix for storing the results (as many rows as the number of folds)
+cv.errors <- matrix(NA, nrow=k, ncol=nmax, dimnames=list(NULL, paste(1:nmax)))
+```
+
+```{r, live=TRUE}
+
+for(i in 1:k) { # for each fold
+    train_fold <- dataf[folds == i,]
+    test_fold <- data[folds != i,]
+    best.fit <- regsubsets(Salary ~ ., data=train_fold, nvmax=nmax)
+    for(j in 1:nmax) { # for each j-variable set
+        # here we take advantage of our predict.regsubsets() function
+        pred <- predict(best.fit, test_fold, id=j)
+        cv.errors[i, j] <- mean((test_fold$Salary - pred)^2)
+    }
+}
+```
+
+The (i, j)th element in the resulting matrix corresponds to the test MSE for the $i$th CV fold and the best $j$-variable model.
+
+If we average over the row of the matrix, we obtain the average cross-validation error for the $j$-variable model:
+
+```{r, live=TRUE}
+### code here
+mean.cv.errors <- apply(cv.errors, MARGIN=2, FUN=mean)
+mean.cv.errors
+
+nbest <- which.min(mean.cv.errors)
+plot(mean.cv.errors, type="b")
+```
+
+The minimum CV error is for a `r nbest`-variable model. Lastly, we perform best subset selection on the full data set and obtain the `r nbest`-variable model:
+
+```{r, live=TRUE}
+reg.best <- regsubsets(Salary ~., data=dataf,
+                       nvmax=nmax)
+```

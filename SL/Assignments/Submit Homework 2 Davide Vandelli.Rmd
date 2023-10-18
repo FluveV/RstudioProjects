@@ -1,0 +1,154 @@
+---
+title: 'Homework #2, Introduction to Statistical Learning.'
+date: "`r Sys.Date()`"
+author: "Davide Vandelli, 240207"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE,
+                      message=FALSE,
+                      tidy.opts=list(width.cutoff = 80),
+                      tidy = TRUE)
+```
+
+```{r echo=T, results='hide'}
+library(ggplot2)
+library(tree)
+library(randomForest)
+library(formatR)
+library(dplyr)
+library(readr)
+library(caret)
+library(knitr)
+prostate <- data.frame(read_csv("prostate.csv"))
+attach(prostate)
+set.seed(25)
+```
+## Introduction
+In this homework, **decision trees** method is implemented to find in which ways the association(s) between the **level of prostate-specific antigen** (measured in $ng/ml%$) and **other clinical measures**. The latter includes: cancer volume ($cm^3$), prostate weight ($g$), age, amount of benign prostatic hyperplasia ($cm^2$), the presence of seminal vesicle invasion, capsular penetration ($cm$), current Gleason score for prostate cancer (6-9), percentage of Gleason scores (4,5) before current Gleason score. Every length or weight measure is in log scale. In the figure below, a preliminary grid to see how these measures distribute with one another.
+```{r, fig.width=7, fig.height=5, fig.cap="Scatterplots amongst measures.", fig.align="center", echo=FALSE}
+labels =  c("cancer volume", "prostate weight", "age","benign PH", "seminal VI", "capsular pen.", "gleason sc.", "previous gleason", "prostate-spec antigen")
+tabl <- data.frame(names(prostate), labels) #i wanted to make a small table to read how variables names are coded but i cannot rn
+colnames(tabl) <- c("Code name","Label")
+print(tabl)
+pairs(prostate, lower.panel = NULL, col = "black")
+```
+```{r, include=FALSE}
+sum(is.na(prostate)) #no N.A.
+sum(prostate=="")    #no missing labels 
+```
+There are no missing values in the data. From the scatter plots we can see how some distributions are more visually correlated with prostate-specific antigen. 
+
+```{r, include=FALSE}
+head(prostate)
+x <- as_tibble(prostate) %>% 
+    select(-lpsa)
+```
+Now, the model #0 is built using a single decision tree. 
+```{r, echo=FALSE}
+tree.prostate <- tree(lpsa ~., data=x)
+summary(tree.prostate)
+```
+
+```{r, echo=FALSE}
+plot(tree.prostate)
+text(tree.prostate, pretty=0) # add node labels
+title(main="Decision tree for predicting prostate-specific antigen")
+```
+It is not the most aesthetically pleasing tree, but it must be noted how cancer volume is one of the first parent nodes for decisions.
+```{r, include=FALSE}
+set.seed(25)
+cv.prostate <- cv.tree(tree.prostate)
+plot(cv.prostate$size, cv.prostate$dev, type="b")
+```
+Below, the tree shown previously is pruned. 
+
+```{r, fig.align='center', echo=FALSE}
+prune.prostate <- prune.tree(tree.prostate, best=6)
+plot(prune.prostate)
+text(prune.prostate, pretty=0)
+title(main="Pruned regression tree")
+```
+
+
+```{r, echo=FALSE}
+set.seed(25)
+#predict(tree.prostate, prostate, type="tree")
+cv.prostate <- cv.tree(prune.prostate)
+summary(prune.prostate) 
+```
+
+The residual mean deviance of the two trees (raw and pruned) slightly increases by 0.07, and it does not seem like pruning improved the model significantly.
+To perform a k-fold cross validation, the data is split and cross validation is repeated within 5 folds.
+```{r, include=TRUE}
+set.seed(25)
+train_index <- createDataPartition(y=lpsa, p=0.6, list=FALSE) 
+ # using 60% of the dataset for training
+train_set <- prostate[train_index,]; test_set <- prostate[-train_index,]
+repeat_cv <- trainControl(method='repeatedcv', number=5)       
+```
+
+```{r, include=FALSE}
+set.seed(25)
+cvcontrol <- trainControl(method="repeatedcv", number = 5,   
+                          allowParallel=TRUE)
+nvar <- ncol(prostate) - 1 # saving the n of predictors
+forest <- train(lpsa~., 
+                data=train_set, 
+                method="rf", 
+                trControl=repeat_cv,
+                importance=TRUE,
+                tunelength=7)
+forest
+```
+For $k=5$, one random forest using K-fold CV is shown. It is called Model 1. 
+```{r}
+set.seed(25)
+cvcontrol <- trainControl(method="repeatedcv", number = 5,   
+                          allowParallel=TRUE)
+cv.rf <- train(lpsa ~ ., 
+                   data=train_set,
+                   method="rf",
+                   importance=TRUE,
+                   tuneLength=7)
+cv.rf
+```
+Then, another model is made with random forest but using the whole data is shown. It is called model 2. 
+```{r}
+set.seed(25)
+cv.whole <- train(lpsa~.,
+                data=prostate,   
+                method='rf', 
+                tuneLength=7,
+                trControl=repeat_cv)
+cv.whole
+```
+To compare the two models the RMSE of each was taken side by side. Below column "M" there is the number of predictors included in the forest. The first model is performing apparently very poorly, but I could not figure out why the implementation did not work as expected, so further work will be done. The second model instead finds the optimal amount of predictors at $4$.
+```{r, include=FALSE}
+result <- data.frame(cv.rf$results$mtry, cv.rf$results$RMSE, cv.whole$results$RMSE)
+colnames(result) <- c("M", "Model 1" , "Model 2")
+```
+```{r, echo=FALSE}
+format(result, digits=3)
+```
+
+
+## Findings and Results
+Regarding the methods implemented, data behaves to show that not all predictors are shown as efficient by decision trees, and random forests.
+For as concerning as the results are, the models do coincide with the optimal choice of predictors, as Model 1 and 2 pick M = 4. As seen before, the simplest decision tree shows that the variables actually used in tree construction were cancer volume, prostate weight and percentage of Gleason scores 4 or 5, which are 3. 
+Further work is needed to prevent mistakes in random forests. 
+
+## Unfinished work
+For reasons regarding personal difficulty of the task, I tried to implement boosted regression trees making a selection of the number of boosting iterations. Below the simpler fitted boosted model. 
+
+```{r}
+library(gbm)
+set.seed(25)
+boosted <- gbm(lpsa ~ ., data=train_set, distribution="gaussian", interaction.depth = 5)
+summary(boosted) 
+knitr::kable(summary(boosted))
+```
+

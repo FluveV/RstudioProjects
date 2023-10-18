@@ -1,0 +1,430 @@
+---
+title: 'Statistical Learning, Lab #2: LDA, QDA, Poisson regression'
+date: 'March 22, 2023'
+author: 'Marco Chierici'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+    theme: readable
+    toc: true
+    toc_float: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE,
+                      message=FALSE,
+                      tidy.opts=list(width.cutoff = 60),
+                      tidy = TRUE)
+```
+
+
+## Linear Discriminant Analysis
+
+For this lab, we'll use the Stock market data again:
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(ISLR2)
+
+dataf <- Smarket
+attach(dataf)
+```
+
+We are now going to fit a LDA model using R's `lda()` function, contained in the `MASS` library. Its syntax is similar to `glm`'s: `lda(formula, data, [subset])`.
+
+```{r}
+# useful snippet to install a library on-the-fly if not already installed
+if (!require(MASS)) { # require() is like library() but returns TRUE if the package exists or FALSE otherwise
+    install.packages(MASS)
+    library(MASS)
+}
+
+# improved version through the package "pacman":
+# install.packages(pacman)
+# library(pacman)
+# p_load(MASS) # load the library if installed, or install & load it if not installed
+```
+
+As we previously did with Logistic Regression in Lab1, we fit the model using only observations before 2005 (identified by the `train` boolean variable) with only `Lag1` and `Lag2` as predictors, and we want to predict the market direction for 2005.
+
+```{r}
+# Split dataset in training and test, i.e. training contains observations from 2001 to 2004
+train <- (Year < 2005) # TRUE/FALSE result (Boolean)
+df.2005 <- dataf[!train, ]
+dim(df.2005)
+
+# We also save the 2005 directions only (for later comparison)
+Direction.2005 <- Direction[!train]
+```
+
+
+```{r, live=TRUE}
+lda.fit <- lda(Direction ~ Lag1+Lag2,
+               data=dataf,
+               subset=train)
+
+lda.fit # have a look at the results
+```
+
+Note the "prior probabilities of groups", indicating that, for example, the 50.8% of training data are of days during which the market went Up.
+
+The "Group means" tell us that the returns of the previous days tend to be positive on days when the market goes Down, and tend to be negative when the market goes Up.
+
+The "Coefficients of linear discriminants" represent the linear combination of `Lag1` and `Lag2` used for the LDA decision rule: in our case, $-0.642 \times Lag1 - 0.514 \times Lag2$. If this quantity is large, then the LDA model will predict a market increase (`Up`), and if it is small, LDA will predict a market decline (`Down`).
+
+We can also conveniently plot the linear discriminants, using the `plot` functions directly on the fit:
+
+```{r, live=TRUE}
+plot(lda.fit)
+```
+
+This plot is obtained by computing the linear combination $-0.642 \times Lag1 - 0.514 \times Lag2$ for each training observation.
+
+After we use `predict()` on new data, we get a list with three elements:
+
+* `class`, the predictions;
+* `posterior`, a matrix whose k-th column contains the posterior probability of an observation belonging to the class k;
+* `x`, the linear discriminants.
+
+```{r, live=TRUE}
+lda.pred <- predict(lda.fit, df.2005)
+names(lda.pred)
+
+# take a look
+head(lda.pred$class, n=30) 
+
+# save the predictions in a new variable, just for convenience
+lda.class <- lda.pred$class
+# confusion matrix
+table(lda.class, Direction.2005)
+# accuracy
+mean(lda.class == Direction.2005)
+```
+
+Since in the previous lab we fit a logistic regression model on the same data, we can repeat the analysis to quickly compare the performance:
+
+```{r, live=TRUE}
+glm.fit <- glm(Direction ~ Lag1+Lag2,
+               data=dataf,
+               family=binomial,
+               subset=train)
+```
+
+```{r}
+glm.probs <- predict(glm.fit, df.2005, type="response")
+glm.class <- ifelse(glm.probs > 0.5, "Up", "Down")
+# confusion matrix
+table(glm.class, Direction.2005)
+# accuracy
+mean(glm.class == Direction.2005)
+```
+
+The performance of the LDA model is identical to that of logistic regression.
+
+Let's go back to LDA. If we threshold the posterior probabilities using the usual 0.5 threshold, we obtain the predictions reported in `lda.pred$class`. Compare the number of elements whose probabilities are higher or lower than the threshold with the actual number of Up and Down predictions, in order to understand which market direction is predicted by LDA.
+
+```{r, live=TRUE}
+sum(lda.pred$posterior[, 1] >= 0.5)
+sum(lda.pred$posterior[, 1] < 0.5)
+```
+
+```{r}
+sum(lda.class=="Up")
+sum(lda.class=="Down")
+```
+
+So the posterior probability output by the model corresponds to the probability of the market going ___.
+
+Alternatively, one may compare the probabilities vs. the actual labels for a few observations:
+
+```{r}
+lda.pred$posterior[1:20, 1]
+lda.class[1:20]
+```
+
+So, by comparing the two above outputs we understand that when $p<0.5$ the model predicts the `Up` class.
+
+We could also use a different threshold to make predictions: for example, 90% instead of 50%. This is easily done:
+
+```{r, live=TRUE}
+sum(lda.pred$posterior[, 1] > 0.9) # zero!
+
+# well, actually the max is...
+max(lda.pred$posterior[, 1])
+```
+
+
+(Optional) Now the `tidymodels` version.
+
+As usual, we create a "model specification" that we pass to the `fit()` function.
+
+```{r}
+# this time we need to install the discrim library (part of tidymodels but available 
+# install.packages("discrim")
+
+library(discrim)
+lda_spec <- discrim_linear() %>%
+  set_mode("classification") %>%
+  set_engine("MASS") # we use the same MASS implementation as before
+
+lda_fit <- lda_spec %>%
+  fit(Direction ~ Lag1 + Lag2, data=dataf[train, ])
+
+lda_fit
+```
+
+```{r}
+# by default, this yields the class labels predictions
+predict(lda_fit, new_data=df.2005)
+# here are the class probabilities
+predict(lda_fit, new_data=df.2005, type="prob")
+
+# confusion matrix
+augment(lda_fit, new_data=df.2005) %>% 
+    conf_mat(truth=Direction, estimate=.pred_class)
+```
+
+
+## Quadratic Discriminant Analysis
+
+Similarly, we are now fitting a QDA model to our `Smarket` data (stored in the `dataf` variable). QDA is implemented in the `qda()` function (`MASS` library), which has the same syntax as `lda()`:
+
+```{r}
+qda.fit <- qda(Direction ~ Lag1 + Lag2,
+               data=dataf,
+               subset=train)
+qda.fit
+```
+
+As usual, we fitted a QDA model on the training portion of `dataf`.
+
+Compare the output with LDA's. What's different?
+
+___ Well, the coefficients of linear discriminants are missing now, since the QDA model involves a quadratic function of the predictors.
+
+We can `predict()` on unseen data (`df.2005`) exactly like we are used to:
+
+```{r}
+# like LDA, this object contains classes and posterior probabilities:
+qda.pred <- predict(qda.fit, df.2005)
+
+names(qda.pred)
+
+qda.class <- qda.pred$class
+# confusion matrix
+table(qda.class, Direction.2005)
+# accuracy
+mean(qda.class == Direction.2005)
+```
+
+We reach an accuracy of about 60%: this is interesting, given that we didn't use the 2005 data to fit the model and that the stock market is known to be hard to model accurately.
+
+This means that the quadratic form in the QDA model is able to model the relationship between data and outcome *more accurately than the linear forms* in LDA and logistic regression.
+
+Before making any further inference, remember that it is better to evaluate the performance of this model on an even larger test set!
+
+>If we wanted to use `tidymodels` (with the `discrim` library), we would create a QDA specification with the function `discrim_quad()` : the remaining part follows the same logic as we have seen before.
+
+
+## Poisson regression
+
+This family of generalized linear models is particularly used for modeling events where the outcomes are counts, or in general *count data* (discrete data with non-negative integer values). A typical example is the number of times an event occurs in a specific timeframe. Note that count data can also be expressed as *rates* or *frequencies*.
+
+So far, we have been experimenting on the `Smarket` data set: let's focus now on a new data set, `Bikeshare`.
+
+```{r}
+as_tibble(Bikeshare)
+names(Bikeshare)
+```
+
+This data set reports the number of bike rentals per hour (`bikers`) in Washington, D.C., among with other variables such as:
+
+* `mnth`, month of the year (factor)
+* `hr`, hour of the day (factor)
+* `workingday`, working day Yes/No (dummy variable with values 1/0)
+* `temp`, normalized temperature in Celsius
+* `weathersit`, weather condition (factor with 4 levels)
+
+>Do you recall what a "dummy variable" is?
+
+We will use these five variables as predictors to model the target variable `bikers`.
+
+The number of rentals per hours can take only non-negative integer values: it is a suitable setting for applying Poisson regression.
+
+We start by fitting a least squares regression model to the data:
+
+```{r, live=TRUE}
+mod_lm <- lm(bikers ~ mnth + hr + workingday + temp + weathersit,
+             data=Bikeshare)
+summary(mod_lm)
+```
+
+In the above summary, you'll notice that the first levels of the factor predictors (e.g., 0 for `hr` and Jan for `mnth`) do not have coefficient estimates: this is because they are treated as the *baseline values*, and their coefficients are implicitly zero.
+
+### About "contrasts"
+
+When fitting a `lm` model, R internally transforms factors with >2 levels in order to be able to compute the regression coefficients. More specifically, R turns a factor with N levels into a set of N-1 *contrasts*.
+A contrast is a linear combination of predictors that allows comparing different conditions.
+In R, the default contrast coding scheme is "dummy coding" (or "treatment coding"), where each level of a factor is compared to a fixed reference level (the 1st level of the factor).
+
+Here is what the dummy coding looks like on `Bikeshare`'s 12-level variable `mnth`:
+
+```{r, live=TRUE}
+contrasts(Bikeshare$mnth) # in general, for a 12-level factor: contr.treatment(12)
+```
+
+In our case, we are comparing each level of `mnth` to the reference (baseline) level `Jan`, which gets chosen as reference because it is the first one. If you want a different reference, you can `relevel` the factor variable. In other words, looking at the `mod_lm` summary, we see that the parameter estimate for `mnthMarch` is 16.551, which is the expected difference of the dependent variable `bikers` between level 3 (`March`) and the reference level 1 (`Jan`).
+
+Another contrast coding scheme is "sum coding" (or "deviation coding"), where we compare the mean of the dependent variable for a given level to the overall mean of the dependent variable. For a 12-level variable, it looks like this:
+
+```{r, live=TRUE}
+contr.sum(12)
+```
+
+The 1st comparison compares level 1 to all levels, the 2nd comparison compares level 2 to all levels, and so on. As you see above, the regression coding assigns 1 to level 1 for the 1st comparison (1st column), 1 to level 2 for the 2nd comparison, and so on. Note that -1 is assigned to the last level for all comparisons, because this is the level that is never compared to the other ones. The estimated coefficient for the last level (`Dec` for `mnth`) is the negative of the sum of all other coefficient estimates.
+
+### Revised contrasts for Bikeshare regression
+
+In Section 4.6.1 of the textbook, the coefficients reported in Table 4.10 were obtained with a `lm` fit after coding the variables `hr` and `mnth` in a slightly different way:
+
+```{r, live=TRUE}
+contrasts(Bikeshare$hr) <- contr.sum(24)
+contrasts(Bikeshare$mnth) <- contr.sum(12)
+```
+
+This coding is made so that the coefficient estimates of the last levels of `hr` and `mnth` will be the negative of the sum of the coefficient estimates for all other levels. In other words, the coefficients of `hr` and `mnth` in the model fit will always sum to zero, and can be interpreted as the difference from the mean level.
+
+```{r}
+mod_lm2 <- lm(bikers ~ mnth + hr + workingday + temp + weathersit,
+             data=Bikeshare)
+summary(mod_lm2)
+```
+
+This time, we have coefficient estimates for the first levels of `mnth` and `hr`, but not for the last ones - for the above reasons. Example: the coefficient for March of -29.54 indicates that there are about 30 fewer riders in March **relative to the yearly average**.
+
+Is this choice of coding affecting the model's predictions?
+
+No, it does not really matter, but you need to interpret the output correctly in light of the coding used. Let's compare the predictions in terms of the sum of squared differences:
+
+```{r}
+sum((predict(mod_lm) - predict(mod_lm2))^2)
+```
+
+We could also check whether the two predictions are the same:
+
+```{r}
+all.equal(predict(mod_lm), predict(mod_lm2))
+```
+
+Now, let's reproduce Figure 4.13 of the textbook.
+
+For the left-hand panel, we need the coefficient estimates of `mnth`:
+
+* the Jan-Nov coefficients come directly from the `mod_lm2` object;
+* the Dec coefficients are computed as the negative sum of all other months
+
+```{r, live=TRUE}
+coef(mod_lm2)[2:12]
+
+coef_months <- c(coef(mod_lm2)[2:12],
+                 -sum(coef(mod_lm2)[2:12]))
+coef_months
+
+# verify that all coefficients sum up to 0
+sum(coef_months)
+```
+
+For the plot, we have to manually label the x-axis with the initials of the months:
+
+```{r}
+plot(coef_months, xlab = "Month", ylab = "Coefficient",
+     xaxt = "n", # don't draw the x-axis as we are customizing it
+     col = "blue", pch = 19, type = "o")
+
+axis(side = 1,
+     at = 1:12, # where to put ticks
+     labels = c("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"))
+```
+
+A similar process can be applied to `hrs` for reproducing the right-hand panel of Figure 4.13:
+
+```{r}
+coef_hours <- c(coef(mod_lm2)[13:35],
+                -sum(coef(mod_lm2)[13:35]))
+
+plot(coef_hours, xlab = "Hour", ylab = "Coefficient", col = "blue", pch = 19, type = "o")
+```
+
+
+It is time to fit a Poisson regression model!
+
+The changes to our code will be minimal. We already know and have used logistic regression with the function `glm()` specifying `family=binomial`: to perform Poisson regression, we use `glm()` with `family=poisson`.
+
+```{r}
+mod_pois <- glm(bikers ~ mnth + hr + workingday + temp + weathersit,
+                data=Bikeshare,
+                family=poisson)
+summary(mod_pois)
+```
+
+
+To interpret the results, let's recall the general mathematical form of Poisson regression:
+
+$$ log(E[y|x]) = \alpha + \sum_{i=1}^{p}\beta_i x_i $$
+
+In the model summary, `Estimate` contains the coefficient values of $\alpha$ (the intercept), $\beta_1$, and so on.
+
+* $exp(\alpha)$ is the effect on the mean when $x=0$;
+* for $\beta=0$ the expected count is $exp(\alpha)$ (y and x are not related)
+* $\beta>0$ means that the expected count is $exp(\beta)$ times *larger* than when $x=0$;
+* $\beta<0$ means that the expected count is $exp(\beta)$ times *smaller* than when $x=0$.
+
+Regarding the coefficient estimates, we make the same considerations as for `mod_lm2`: the coefficients of the last levels of `mnth` and `hr` will be the negative of the sum of the coefficients of the other levels.
+
+Now we can reproduce Figure 4.15:
+
+```{r}
+coef_mnth <- c(coef(mod_pois)[2:12],
+               -sum(coef(mod_pois)[2:12]))
+
+plot(coef_mnth, xlab = "Month", ylab = "Coefficient",
+     xaxt = "n", # don't draw the x-axis as we are customizing it
+     col = "blue", pch = 19, type = "o")
+
+axis(side = 1,
+     at = 1:12, # where to put ticks
+     labels = c("J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"))
+
+coef_hr <- c(coef(mod_pois)[13:35],
+             -sum(coef(mod_pois)[13:35]))
+
+plot(coef_hr, xlab = "Hour", ylab = "Coefficient", col = "blue", pch = 19, type = "o")
+```
+
+
+To obtain the fitted values from this Poisson regression model, we use `predict()` specifying `type="response"`. In this way, we will get our desired output 
+
+$$exp(\hat{\beta_0} + \hat{\beta_1}X_1 + \ldots \hat{\beta_p}X_p)$$
+
+instead of 
+
+$$\hat{\beta_0} + \hat{\beta_1}X_1 + \ldots \hat{\beta_p}X_p$$
+
+which we would get by default.
+
+
+```{r}
+pred_lm2 <- predict(mod_lm2)
+pred_pois <- predict(mod_pois, type="response")
+
+plot(pred_lm2, pred_pois, pch=19, cex=0.5, col=rgb(70, 130, 180, max=255, alpha=125))
+abline(0, 1, col=2, lwd=3)
+```
+
+
+The predictions from the Poisson regression model tend to be larger than those from the linear model for very low or very high levels of `bikers`: this is because the Poisson predictions are non-negative.
+
