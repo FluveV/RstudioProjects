@@ -1,0 +1,636 @@
+---
+title: "ggplot2: additional topics"
+author: "Marco Chierici"
+date: "Apr 5, 2023"title: "ggplot2: additional topics"
+author: "Marco Chie
+output: 
+  html_document:
+    theme: readable
+    toc: true
+    toc_float: true
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60),
+                      tidy = TRUE,
+                      warning = FALSE,
+                      error = TRUE,
+                      collapse = TRUE)
+set.seed(4561)
+```
+
+# Dealing with distributions
+
+## Histograms
+
+Histograms display numeric values on the X axis where the continuous variable is broken into intervals ("bins") and the the Y axis represents the frequency of observations that fall into that bin.
+
+So, they make it easy to spot what the most common observations are for the variable being assessed (the higher the bar, the more frequent those values are observed in the data). They also highlight the shape of the data by illustrating if the observed values cluster towards one end or the other of the distribution.
+
+```{r, live=TRUE}
+library(dslabs)
+data(heights)
+head(heights)
+
+# basic histogram
+ggplot(heights, aes(x=height)) + geom_histogram()
+
+# try different bin widths
+g <- ggplot(heights, aes(x=height))
+g + geom_histogram(binwidth=1, color="grey30", fill="white")
+g + geom_histogram(binwidth=5, color="grey30", fill="white")
+g + geom_histogram(binwidth=10, color="grey30", fill="white")
+
+# smoothed histogram: density plot
+g + geom_density()
+
+# overlap density and histogram
+g + geom_histogram(aes(y=after_stat(density)), binwidth=1, color="grey30", fill="white") +
+  geom_density(alpha=0.2, fill="antiquewhite3")
+
+# another example of after_stat()
+g + geom_histogram(aes(fill=after_stat(count)), binwidth=0.5)
+```
+
+The `after_stat()` function is used to delay the evaluation of the aesthetics mapping after the statistical transformation:
+
+-   `after_stat(density)` - estimate the density, then use this as computed variable;
+-   `after_stat(count)` - count the number of elements, then use this as computed variable.
+
+You can compare different groups by properly adjusting the `aes()` call, as usual:
+
+```{r, live=TRUE}
+# compare groups
+g2 <- ggplot(heights, aes(x=height, fill=sex))
+g2 + geom_histogram(binwidth=1, position="identity", alpha=0.5)
+# interleaved histograms
+g2 + geom_histogram(binwidth=1, position="dodge")
+
+# same with density plots
+g2 + geom_density(alpha=0.5)
+```
+
+What about adding a reference line? e.g. highlighting the mean or median.
+
+```{r, live=TRUE}
+# add reference line
+g + geom_histogram(binwidth=1, color="grey30", fill="white") +
+  geom_vline(xintercept=mean(heights$height), color="red", linetype="dashed")
+
+# for grouped data, there's a little prep work to do
+group_means <- heights %>% group_by(sex) %>% summarize(Mean=mean(height))
+# remember:
+# g2 <- ggplot(heights, aes(x=height, fill=sex))
+g2 + geom_histogram(binwidth=1, position="identity", alpha=0.5) +
+  geom_vline(data=group_means, aes(xintercept=Mean, color=sex), linetype="dashed", size=1)
+```
+
+## Boxplots & Co.
+
+The Box plot (boxplot, box-and-whisker plot) is an excellent tool to explore distributions. It can also show the distributions within multiple groups, along with the median, range and outliers (if any).
+
+The dark line inside the box represents the median. The top of box is the 3rd quartile and the bottom is the 1st quartile. The end points of the lines (a.k.a. "whiskers") are at a distance of 1.5\*IQR, where IQR (InterQuartile Range) is the distance between 1st and 3rd quartiles (25th and 75th percentiles). The points outside the whiskers are marked as dots and are usually considered as extreme points (outliers).
+
+In ggplot, you draw a boxplot adding the geometry `geom_boxplot()`.
+
+```{r, live=TRUE}
+bp <- ggplot(mpg, aes(x=cyl, y=cty))
+# 1st attempt
+bp + geom_boxplot()
+# fixed!
+bp <- ggplot(mpg, aes(x=factor(cyl), y=cty))
+bp + geom_boxplot()
+```
+
+Boxplots already embed a lot of statistical information, so it is advisable not to add many customizations or layers.
+
+```{r, live=TRUE}
+bp + geom_boxplot() + coord_flip()
+
+bp + geom_boxplot(fill="plum") + 
+    labs(title="Box plot", 
+         subtitle="City mileage grouped by no. of cylinders",
+         caption="Source: mtcars",
+         x="Number of cylinders",
+         y="City mileage")
+```
+
+Setting `varwidth=TRUE` adjusts the width of the boxes to be proportional to the number of observation it contains.
+
+```{r, live=TRUE}
+bp + geom_boxplot(varwidth=TRUE)
+```
+
+You can easily obtain a grouped box plot by stratifying on a factor variable:
+
+```{r, live=TRUE}
+bp <- ggplot(mpg, aes(x=class, y=cty))
+bp + geom_boxplot()
+bp + geom_boxplot(aes(fill=factor(cyl)))
+```
+
+A common issue with boxplots is that they may "hide" information! This is because they *summarize* the distributions of numerical variables for different groups. One way to improve this is by overplotting the actual data (jittered for readability). Boxplot with scatter plot
+
+```{r, live=TRUE}
+bp <- ggplot(mpg, aes(x=class, y=cty))
+bp + geom_boxplot(outlier.shape = NA) + geom_jitter(alpha=0.5, size=0.7, color="grey30") + 
+  labs(title = "Example of Violin Plot", x = "Vehicle Class", y = "Number of Cylinders")
+
+# to switch off outliers before jittering:
+bp + geom_boxplot(outlier.color=NA) + geom_jitter(alpha=0.3, size=0.7, color="grey30") + 
+  labs(title = "Example of Violin Plot", x = "Vehicle Class", y = "Number of Cylinders")
+```
+
+### Violin plots
+
+With a large sample size, using `geom_jitter` is no longer an option because of the many overlappings.
+
+Violin plots improve on boxplots in that they also show the underlying distribution of the numerical variables.
+
+```{r, live=TRUE}
+# basic
+bp + geom_violin(aes(fill=class)) + theme(legend.position="none")
+
+# boxplot + violin plot!
+bp + geom_violin(width=1.5, aes(fill=class)) +
+  geom_boxplot(width=0.2, color="gray30", alpha=0.2) +
+  theme(legend.position="None")
+ggsave("plots/violinplot.pdf", plot = last_plot(), dpi = "screen")
+```
+
+## 2-variable plots
+
+This family of plots is about showing continuous bivariate distributions.
+
+-   `geom_bin2d`
+-   `geom_hex` (requires `hexbin` library)
+-   `geom_density2d`
+
+```{r bin2d, live=TRUE}
+dd <- ggplot(diamonds, aes(x=carat, y=price))
+dd + geom_bin2d()
+dd + geom_bin2d() + scale_fill_gradient(high="red", low="green")
+```
+
+```{r hexbin, live=TRUE}
+# install.packages("hexbin")
+dd + geom_hex()
+dd + geom_hex() + scale_fill_gradient(high="turquoise", low="darkblue")
+```
+
+```{r dens2d, live=TRUE}
+dd + geom_density2d()
+```
+
+# Aesthetics (without mappings)
+
+Plots aesthetics can be useful even without mappings! You can customize aspects like color, fill, size, and transparency (alpha). Here are a few examples.
+
+```{r, live=TRUE}
+library(ggplot2)
+head(mtcars)
+dataf <- tibble::rownames_to_column(mtcars, var="model")
+head(dataf)
+
+p <- ggplot(dataf, aes(x=disp, y=hp))
+p + geom_point()
+p + geom_point(size=3)
+p + geom_point(size=3, shape=17)
+p + geom_point(size=4, shape=23, fill="#CCCCCC", color="red") # shapes 21 to 25 have both fill and color
+
+ggplot(dataf, aes(x=disp, y=hp, color=cyl)) + geom_point()
+ggplot(dataf, aes(x=disp, y=hp, color=factor(cyl))) + geom_point()
+
+dataf$cyl <- as.factor(dataf$cyl)
+
+ggplot(dataf, aes(x=disp, y=hp, size=cyl)) + geom_point(show.legend=FALSE)
+```
+
+Everything that is not a mapping should not be in the `aes()` part!
+
+# Faceting
+
+With facets, you can "decompose" a data plot into multiple different subplots, according to each value in one or two categorical variables.
+
+## `facet_grid`
+
+To create a plot with multiple facets, use the function `facet_grid()`, which will output a row or a column of subplots, one for each level of the categorical variable. If you input two categorical variables, the subplots are arranged in a grid.
+
+```{r, live=TRUE}
+data(mpg, package="ggplot2")
+p <- ggplot(mpg, aes(x=displ, y=cty)) + geom_point() +
+  geom_smooth(method="lm", se=FALSE)
+print(p)
+
+p + facet_grid(. ~ class) # LHS variable -> across rows; RHS variable -> across columns
+p + facet_grid(class ~ .)
+
+p + facet_grid(cyl ~ class)
+```
+
+## `facet_wrap`
+
+If you only need to stratify the subplots by a single categorical variable, you can use the `facet_wrap()` variant. Optionally, you can specify the number of rows or columns with an additional argument (`nrow`, `ncol`).
+
+By default, the scales of all subplots are the same for all panels. To leave them free to vary, set `scales="free"`.
+
+```{r, live=TRUE}
+p + facet_wrap(. ~ class)
+p + facet_wrap(. ~ class, nrow=2)
+p + facet_wrap(. ~ class, nrow=2, scales="free")
+```
+
+# More on coordinates
+
+Besides `coord_cartesian()` and `coord_flip()`, another useful function operating on coordinates is `coord_fixed(ratio=y/x)`, which allows you to lock the aspect ratio of the plot.
+
+```{r, live=TRUE}
+p + coord_fixed(ratio=1/5) # it takes 5 x-units for each y-unit
+```
+
+# More on customization
+
+## Legends
+
+Whenever your plot's `geom` (like points, lines, bars, etc) is set to change the aesthetics (fill, size, color, shape or stroke) based on another variable, a legend is automatically drawn. Here is how to customized them.
+
+```{r, live=TRUE}
+# new dataset: midwest
+head(midwest)
+
+gg <- ggplot(midwest, aes(x=area, y=poptotal)) +
+  geom_point(aes(color=state, size=popdensity)) +
+  geom_smooth(method="loess", se=FALSE)
+gg
+
+# remove outliers by using ylim()
+gg <- gg + xlim(0, 0.1) + ylim(0, 500000)
+gg
+```
+
+### Legend title
+
+You have several options.
+
+1.  Using `labs()`, you attach a label to an aesthetics variable (fill, size, color, ...).
+
+```{r, live=TRUE}
+gg + labs(color="State", size="Pop. density")
+```
+
+2.  `guides()`: similar usage to `labs()`
+
+```{r, live=TRUE}
+gg + guides(color=guide_legend("State"), size=guide_legend("Pop. density"))
+```
+
+3.  `scale_<aesthetic>_<type>()`: more flexible, as you can switch off the legend for one particular aesthetic.
+
+```{r, live=TRUE}
+gg + scale_color_discrete(name="State") +
+  scale_size_continuous(name="Density")
+
+gg + scale_color_discrete(name="State") +
+  scale_size_continuous(name="Density", guide=FALSE)
+```
+
+### Legend labels and point colors
+
+For changing the legend labels only, we can still use `scale_<aesthetic>_discrete()` function:
+
+```{r, live=TRUE}
+gg + scale_color_discrete(name="State", labels=c("Illinois", "Indiana", "Michigan", "Ohio", "Wisconsin"))
+```
+
+For changing the point colors, we have to use the `scale_<aesthetic>_manual()` function: legend labels are supplied as a character vector (as above), and point colors (for categorical variables) are supplied as a named vector (in the form `c(<actual variable value> = "color")`). Note that `ggplot` automatically changes the point colors used in the actual plot too. :)
+
+```{r, live=TRUE}
+gg + scale_color_manual(name="State", 
+                        labels=c("Illinois", "Indiana", "Michigan", "Ohio", "Wisconsin"),
+                        values=c(IL="blue", IN="red", MI="green", OH="brown", WI="orange")
+)
+```
+
+### Order of legends
+
+In our example above, if we wanted to show the legend for color (`state`) before that for size (`popdensity`), we can do that using `guides()` again.
+
+```{r, live=TRUE}
+gg + guides(color=guide_legend(order=1), size=guide_legend(order=2))
+```
+
+### Style of legend title, text, key, and background
+
+We change these with `theme()`:
+
+-   Title and text can be adjusted with the `element_text()` function.
+-   The legend key and background are figure-like objects: they have to be adjusted with the `element_rect()` function.
+
+```{r, live=TRUE}
+gg + theme(legend.title=element_text(size=12, color="orange"),
+           legend.text=element_text(size=10),
+           legend.key=element_rect(fill="lightgray")
+)
+```
+
+### Change legend position and layout
+
+We already know how to remove a legend:
+
+```{r}
+gg + theme(legend.position="None") # "none" also works
+```
+
+Other viable options for `legend.position` and top, bottom, left, and right (the default).
+
+```{r}
+gg + theme(legend.position="left")
+```
+
+A legend can be displayed either horizontally or vertically: `ggplot` automatically chooses the best option but you can override it by adjusting the `legend.box` argument.
+
+```{r}
+gg + theme(legend.position="left", legend.box="horizontal") # or "vertical"
+gg + theme(legend.position="bottom", legend.box="vertical")
+```
+
+What about a legend inside the plot?
+
+```{r, live=TRUE}
+gg + theme(legend.position=c(0.88, 0.5))
+
+gg + theme(legend.position=c(0.88, 0.5), 
+           legend.background=element_blank(), legend.box="horizontal") # make the legend background transparent
+```
+
+## Annotations
+
+### Text
+
+```{r, live=TRUE}
+p <- ggplot(mtcars) + geom_point(aes(x=disp, y=hp))
+p + geom_text(aes(x=disp, y=hp, label=mpg)) # this is OK
+p + geom_text(aes(x=disp, y=hp), label=mpg) # this is not OK (outside of aes)
+p + geom_text(aes(x=disp, y=hp), label='mpg') # this is OK (not so useful though!)
+```
+
+Arguments to `geom_text()`:
+
+-   `label`
+-   `nudge_x`, `nudge_y` - offsets along X and Y axis
+-   `check_overlap` (TRUE/FALSE) - tentatively avoids overlap.
+
+Local vs global aesthetics: the `aes()` call inside `ggplot()` defines **global** aesthetics. All geometries that we add as layers will default to this aesthetic mapping.
+
+```{r, live=TRUE}
+p <- mtcars %>% ggplot(aes(x=disp, y=hp, label=mpg))
+p + geom_point(size=3) +
+  geom_text()
+
+p + geom_point(size=3) +
+  geom_text(nudge_x = 20)
+```
+
+You can override the global mapping by providing a new `aes()` mapping within each layer: this **local** mapping override the **global** one. Here's an example of a one-off annotation attached to specific coordinates:
+
+```{r, live=TRUE}
+p + geom_point(size=3) +
+  geom_text(aes(x=200, y=300, label="Hi there!")) # why is the text so jagged??
+
+# better:
+p + geom_point(size=3) +
+  annotate(geom="text", x=200, y=300, label="Hi there!")
+```
+
+-   `geom_text()` is designed to add annotations leveraging a data frame as source: so, if we use it for a single annotation, it actually draws as many elements as items in the data frame! This will make the text appear as if it were jagged.
+-   `annotate()` is designed to deal with quick one-off annotations.
+
+```{r, live=TRUE}
+# geom_text revisited: reset the data source
+p + geom_point(size=3) +
+  geom_text(aes(x=200, y=300, label="Hi there!"), data=data.frame())
+```
+
+In the following example, we try to (semi-manually) account for overlapping text:
+
+```{r, live=TRUE}
+data <- head(mtcars, 15)
+
+ggplot(data, aes(x=disp, y=mpg)) +
+  geom_point() +
+  geom_text(label=rownames(data))
+
+ggplot(data, aes(x=disp, y=mpg)) +
+  geom_point() +
+  geom_text(label=rownames(data),
+            nudge_x=0.3, nudge_y=0.3)
+
+ggplot(data, aes(x=disp, y=mpg)) +
+  geom_point() +
+  geom_text(label=rownames(data),
+            nudge_x=0.3, nudge_y=0.3,
+            check_overlap=TRUE)
+```
+
+The library `ggrepel` was created to better deal with this kind of scenario: it adds the new geometry layer `geom_text_repel()`. Let's see it in action.
+
+```{r, live=TRUE}
+library(ggrepel) # install.packages("ggrepel")
+p <- ggplot(mtcars, aes(x=disp, y=mpg, label=rownames(mtcars))) + geom_point()
+p + geom_text_repel()
+p + geom_text_repel(arrow=arrow(angle=20, length=unit(0.015, "npc"))) # normalized parent coordinates
+p + geom_text_repel(segment.curvature=-0.1, max.overlaps = 40)
+```
+
+### Labels
+
+`geom_label()` works pretty much like `geom_text()`, except it wraps the text annotation inside a customizable rectangle.
+
+```{r}
+dataf <- tibble::rownames_to_column(mtcars, var="model")
+head(dataf)
+
+# basic
+ggplot(dataf, aes(x=disp, y=mpg)) +
+  geom_point() +
+  geom_label(aes(label=model),
+             alpha=0.5)
+
+# better: label only some points
+dataf$cyl <- factor(dataf$cyl)
+best_by_cyl <- dataf %>% group_by(cyl) %>% 
+  filter(row_number(desc(mpg)) == 1)
+best_by_cyl
+
+ggplot(dataf, aes(x=disp, y=mpg)) +
+  geom_point(aes(color=cyl)) +
+  geom_label(data=best_by_cyl, aes(label=model),
+             alpha=0.5)
+
+# avoid label overlapping
+ggplot(dataf, aes(x=disp, y=mpg)) +
+  geom_point(aes(color=cyl)) + labs(title = "Il rapporto tra cilindri e l'aria", 
+       caption = "in dettaglio, i dati presentano 38 dei modelli più popolari tra il 1999 e il 2008.", 
+       x ="Numero di cilindri",
+       y = "Volume di aria spostata") +
+  geom_label_repel(data=best_by_cyl, aes(label=model)) 
+ggsave("plots/CilindriVsAria.pdf", dpi = "screen")
+```
+
+As with `geom_text()`, you can place a label at some arbitrary coordinates:
+
+```{r}
+ggplot(dataf, aes(x=disp, y=mpg)) +
+  geom_point() +
+  geom_label(x=200, y=12.5, label="What is it you cunt face?")
+```
+
+### Custom annotations
+
+We can add an annotation to any specific point of the chart with the `annotation_custom()` function. We first have to create a "grob" ("grid graphical object", `grid` library) holding the text we want to display, and pass it as the main argument of the function.
+
+The basic syntax for creating a text grob is `grid.text(label, x, y)`: note, however, that `x` and `y` coordinates are by default relative to the viewport. This means that (0, 0) is the origin, (1, 1) the top-right corner, and (0.5, 0.5) the center of the viewport.
+
+```{r, live=TRUE}
+# Base Plot
+gg <- ggplot(mpg, aes(x=displ, y=cty)) +
+  geom_point() +
+  geom_smooth(method="loess", se=FALSE) +
+  labs(title="Consumption vs. engine displacement",
+       x="Displacement (L)",
+       y="City consumption (mpg)",
+       caption="source: mpg data set")
+print(gg)
+
+library(grid)
+my_text <- "This text is at x=0.5 and y=0.8!"
+gg + annotation_custom(grid.text(my_text, x=0.5, y=0.8, gp=gpar(col="firebrick", fontsize=14, fontface="bold")))
+```
+
+It is also possible to add a background image! We proceed in a similar way, by first creating a grob to hold the image and then passing it to `annotation_custom`:
+
+```{r}
+library(png)
+library(RCurl)
+library(grid)
+
+# Read the PNG image from the URL
+img <- png::readPNG(getURLContent("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Rlogo.png/64px-Rlogo.png", curl = getCurlHandle()))
+
+# Create the raster graphic object
+g_pic <- rasterGrob(img, interpolate = TRUE)
+
+# Display the graphic
+grid.newpage()
+grid.draw(g_pic)
+
+gg + theme_bw() +
+  annotation_custom(g_pic, xmin=3, xmax=4, ymin=30, ymax=35)
+```
+
+## Modifying plot background, major and minor axis
+
+Adding a call to `theme()` as the final layer, we can change the properties of the plot background (`panel.background`), border (`panel.border`), grid (`panel.grid.major`, `panel.grid.minor`), and axis lines (`axis.line.x`, `axis.line.y`).
+
+-   The background is a figure-like object, so we use `element_rect()` inside the call to `theme()`;
+-   The grid and the axis lines are line-like objects, so we have to use `element_line()`;
+-   To switch off a component, we use `element_blank()`
+
+You can change the plot margins with the parameter `plot.margin` inside `theme()`.
+
+```{r, live=TRUE}
+gg + theme_bw()
+
+# Change Plot Background elements
+gg + theme_bw() +
+  theme(panel.background = element_rect(fill = 'khaki'),
+        panel.grid.major = element_line(colour = "burlywood", size=1.5),
+        panel.grid.minor = element_line(colour = "tomato", 
+                                        size=.25, 
+                                        linetype = "dashed"),
+        panel.border = element_blank(),
+        axis.line.x = element_line(colour = "darkorange", 
+                                   size=1.5, 
+                                   lineend = "butt"),
+        axis.line.y = element_line(colour = "darkorange", 
+                                   size=1.5))
+
+# Change Plot Margins
+gg + theme_bw() + 
+  theme(plot.background=element_rect(fill="salmon"), 
+        plot.margin = unit(c(2, 2, 1, 1), "cm")) # top, right, bottom, left
+
+# Remove major/minor grids, axis titles
+gg + theme_bw() +
+  theme(panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank()
+        )
+```
+
+# Lab5 assignment
+
+Using the gapminder dataset, create a set of plots to explore the distribution of life expectancy against GDP per capits across different continents. Specifically:
+
+1.  Create a **boxplot** showing the distribution of life expectancy by continent.
+2.  Create a **histogram** showing the distribution of life expectancy across all countries in the dataset, with separate histograms for each continent.
+3.  Create a **faceted scatterplot** showing the relationship between life expectancy and GDP per capita, with one facet for each continent.
+4.  Customize the plots by changing elements such as **plot backgrounds**, **legend properties**, **text sizes**, and by adding **textual annotations** to highlight countries with high GDP and high life expectancy.
+
+```{r}
+library(gapminder)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+ggplot(gapminder, aes(x=continent, y = lifeExp)) +
+  geom_boxplot()
+
+Asia <- gapminder %>% 
+  select(country, continent, lifeExp, year)  %>% 
+  filter(continent == "Asia", year == 2007) 
+Africa <- gapminder %>% 
+  select(country, continent, lifeExp, year)  %>% 
+  filter(continent == "Africa", year == 2007) 
+Americas <- gapminder %>% 
+  select(country, continent, lifeExp, year)  %>% 
+  filter(continent == "Americas", year == 2007) 
+Oceania <- gapminder %>% 
+  select(country, continent, lifeExp, year)  %>% 
+  filter(continent == "Oceania", year == 2007) 
+Europe  <-gapminder %>% 
+  select(country, continent, lifeExp, year)  %>% 
+  filter(continent == "Europe", year == 2007) 
+
+dataset_names <- c("Africa", "Americas", "Asia", "Europe", "Oceania")
+plots <- list()
+
+for (name in dataset_names) {
+  dataset <- get(name)
+  gg <- ggplot(dataset, aes(x = country, y = lifeExp)) +
+    geom_bar(stat = "identity", fill = "blue") +
+    ggtitle(paste(name)) +
+    coord_flip()
+  print(gg)
+}
+
+ggplot(gapminder, aes(log(gdpPercap), lifeExp)) +
+  geom_point(alpha = 0.4, color = "darkgreen") +
+  facet_wrap(~ continent, scales = "free_x", nrow = 1) + 
+  labs(x = "GDP per capita (in log scale)", y = "Life Expectancy") 
+```
+
+# Resources
+
+-   ggplot2 cheatsheet: <https://github.com/rstudio/cheatsheets/blob/master/data-visualization.pdf>
+-   Official ggplot2 documentation: <http://docs.ggplot2.org/current/>
+-   Official ggplot2 website: <http://ggplot2.tidyverse.org/>
+-   Chapter on data visualisation in the book *R for Data Science*: <http://r4ds.had.co.nz/data-visualisation.html>
+
+# License
+
+These materials were partly abridged from work by Stéphane Guillou and Hadley Wickham.

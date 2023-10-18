@@ -1,0 +1,329 @@
+---
+title: "Data visualization lab"
+date: "Mar 14, 2023"
+author: "Marco Chierici"
+output: 
+  html_document:
+    theme: readable
+    toc: true
+    toc_float: true
+    df_print: paged
+editor_options:
+    chink_output_type: console
+---
+
+```{r setup, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(
+  tidy.opts = list(width.cutoff = 60),
+  tidy = TRUE,
+  error = TRUE,
+  collapse = TRUE,
+  comment = "#>"
+)
+set.seed(4561)
+```
+
+# Relational data
+
+(partially abridged from Jenny Bryan, see License information at the end)
+
+## Joining two tables
+
+Working with two small data frames: `superheroes` and `publishers`.
+
+```{r start_joins, message = FALSE, warning = FALSE, tidy = FALSE}
+superheroes <- tibble::tribble(
+  ~name, ~alignment, ~gender, ~publisher,
+  "Magneto", "bad", "male", "Marvel",
+  "Storm", "good", "female", "Marvel",
+  "Mystique", "bad", "female", "Marvel",
+  "Batman", "good", "male", "DC",
+  "Joker", "bad", "male", "DC",
+  "Catwoman", "bad", "female", "DC",
+  "Hellboy", "good", "male", "Dark Horse Comics"
+)
+
+publishers <- tibble::tribble(
+  ~publisher, ~yr_founded,
+  "DC", 1934L,
+  "Marvel", 1939L,
+  "Image", 1992L
+)
+```
+
+Watch the row and variable order of the join results for a healthy reminder of why it's dangerous to rely on any of that in an analysis.
+
+As usual, start by actually looking at the data:
+
+```{r}
+superheroes
+publishers
+```
+
+### Inner join
+
+> `inner_join(x, y)`: Return all rows from `x` where there are matching values in `y`, and all columns from `x` and `y`. If there are multiple matches between `x` and `y`, all combination of the matches are returned. This is a mutating join.
+
+```{r, live=TRUE}
+(ijsp <- inner_join(superheroes, publishers))
+```
+
+We lose Hellboy in the join because, although he appears in `x = superheroes`, his publisher Dark Horse Comics does not appear in `y = publishers`. The join result has all variables from `x = superheroes` plus `yr_founded`, from `y`.
+
+### Left join
+
+> `left_join(x, y)`: Return all rows from `x`, and all columns from `x` and `y`. If there are multiple matches between `x` and `y`, all combination of the matches are returned. This is a mutating join.
+
+```{r, live=TRUE}
+(ljsp <- left_join(superheroes, publishers))
+```
+
+We basically get `x = superheroes` back, but with the addition of variable `yr_founded`, which is unique to `y = publishers`. Hellboy, whose publisher does not appear in `y = publishers`, has an `NA` for `yr_founded`.
+
+### Anti join
+
+> `anti_join(x, y)`: Return all rows from `x` where there are not matching values in `y`, keeping just columns from `x`. This is a filtering join.
+
+```{r, live=TRUE}
+(ajsp <- anti_join(superheroes, publishers))
+```
+
+We keep **only** Hellboy now (and do not get `yr_founded`).
+
+### Inner join: publishers, superheroes
+
+```{r, live=TRUE}
+(ijps <- inner_join(publishers, superheroes))
+```
+
+In a way, this does illustrate multiple matches, if you think about it from the `x = publishers` direction. Every publisher that has a match in `y = superheroes` appears multiple times in the result, once for each match. In fact, we're getting the same result as with `inner_join(superheroes, publishers)`, up to variable order (which you should also never rely on in an analysis).
+
+### Left join: publishers, superheroes
+
+```{r, live=TRUE}
+(ljps <- left_join(publishers, superheroes))
+```
+
+We get a similar result as with `inner_join()` but the publisher Image survives in the join, even though no superheroes from Image appear in `y = superheroes`. As a result, Image has `NA`s for `name`, `alignment`, and `gender`.
+
+### Full join: superheroes, publishers
+
+> `full_join(x, y)`: Return all rows and all columns from both `x` and `y`. Where there are not matching values, returns `NA` for the one missing. This is a mutating join.
+
+```{r, live=TRUE}
+(fjsp <- full_join(superheroes, publishers))
+```
+
+We get all rows of `x = superheroes` plus a new row from `y = publishers`, containing the publisher Image. We get all variables from `x = superheroes` AND all variables from `y = publishers`. Any row that derives solely from one table or the other carries `NA`s in the variables found only in the other table.
+
+------------------------------------------------------------------------
+
+# Tidy data
+
+> If I had one thing to tell biologists learning bioinformatics, it would be "write code for humans, write data for computers". [Vince Buffalo](https://twitter.com/vsbuffalo/statuses/358699162679787521)
+
+An important aspect of "writing data for computers" is to make your data **tidy**. Key features of **tidy** data:
+
+-   Each column is a variable
+-   Each row is an observation
+
+If you are struggling to make a figure, for example, stop and think hard about whether your data is **tidy**. Untidiness is a common, often overlooked cause of agony in data analysis and visualization.
+
+## Lord of the Rings example
+
+I'll show you a practical example on some untidy data created from [this data from the Lord of the Rings Trilogy](https://github.com/jennybc/lotr).
+
+```{r, live=TRUE}
+lotr_untidy <- readr::read_csv("lotr_untidy.csv")
+lotr_untidy
+```
+
+We have three rows per movie. For each movie, we have the total number of words spoken by characters of different races and genders.
+
+```{r, live=TRUE}
+fship <- lotr_untidy %>% 
+  filter(str_detect(Film, "Fellowship"))
+```
+
+```{r results = 'asis', echo = FALSE}
+knitr::kable(fship,
+             digits = 0, caption = "The Fellowship Of The Ring")
+```
+
+```{r results = 'asis', echo = FALSE}
+ttow <- lotr_untidy %>% 
+  filter(str_detect(Film, "Towers"))
+
+knitr::kable(ttow,
+             digits = 0, caption = "The Two Towers")
+```
+
+```{r results = 'asis', echo = FALSE}
+rking <- lotr_untidy %>% 
+  filter(str_detect(Film, "King"))
+
+knitr::kable(rking,
+             digits = 0, caption = "The Return Of The King")
+```
+
+You could imagine finding these three tables as separate worksheets in an Excel workbook. Or hanging out in some cells on the side of a worksheet that contains the underlying data raw data. Or as tables on a webpage or in a Word document.
+
+This format makes it easy for a *human* to look up the number of words spoken by female elves in The Two Towers. But this format actually makes it pretty hard for a *computer* to pull out such counts and, more importantly, to compute on them or graph them.
+
+### Exercises
+
+Look at the tables above and answer these questions:
+
+-   What's the total number of words spoken by male hobbits?
+
+    ```{r}
+     lotr_untidy %>% 
+       filter(Race=="Hobbit") %>%
+       select("Male") %>% 
+       sum()
+    ```
+
+-   Does a certain `Race` dominate a movie? Does the dominant `Race` differ across the movies?
+
+    ```{r}
+    lotr_untidy %>%
+      mutate(Total = Male + Female) %>%
+      top_n(3, Total) %>%
+      select(Race, Film)
+    ```
+
+-   ANSWER: Man (both male and female) is dominating two movies, specifically The Two Towers and The Return Of The Ring. Hobbit is dominating The Fellowship of The Ring.
+
+How well does your approach scale if there were many more movies or if I provided you with updated data that includes all the `Races` (e.g. dwarves, orcs, etc.)?
+
+Very well: i used a sum function to count how much all members of a race say words in each movie (both sexes) and a top_n function that just selects the race and the movie.
+
+## From untidy to tidy
+
+### Import untidy Lord of the Rings data
+
+For the sake of this lesson, I loaded the (untidy) data from a single file and then split them into three three tibbles (data frames) `fship`, `ttow`, and `rking`.
+
+I assume that data can be found as three plain text, delimited files, one for each film. How to liberate data from spreadsheets or tables in word processing documents is beyond the scope of this tutorial.
+
+So we have one tibble per film, each with a common set of 4 variables. Step one in tidying this data is to glue them together into one data frame, stacking them up row wise. This is called row binding and we use `dplyr::bind_rows()`.
+
+```{r, live=TRUE}
+lotr_untidy <- bind_rows(fship, ttow, rking)
+str(lotr_untidy)
+lotr_untidy
+```
+
+### Tidy the untidy Lord of the Rings data
+
+We are still violating one of the fundamental principles of *tidy data*. "Word count" is a fundamental variable in our dataset and it's currently spread out over two variables, `Female` and `Male`.
+
+Conceptually, we need to gather up the word counts into a single variable and create a new variable `Gender` to track whether each count refers to females or males: we are moving from wide to long formats. We use the `pivot_longer` function from the `tidyr` package to do this:
+
+```{r, live=TRUE}
+lotr_tidy <- pivot_longer(lotr_untidy, Female:Male, names_to = "Gender", values_to = "Words")
+lotr_tidy
+```
+
+Tidy data ... mission accomplished!
+
+To explain our call above, let's read it from left to right: from `lotr_untidy` we took the variables `Female` and `Male`, putting their *names* in the new column `Gender` and gathering their *values* into the new variable `Words`. All other variables, such as `Film`, remain unchanged and are simply replicated as needed. The documentation for `pivot_longer()` gives more examples.
+
+### Write the tidy data to a delimited file
+
+Now we write this multi-film, tidy dataset to file for use in various downstream scripts for further analysis and visualization. This would make an excellent file to share on the web with others, providing a tool-agnostic, ready-to-analyze entry point for anyone wishing to play with this data.
+
+```{r, eval=FALSE}
+write_csv(lotr_tidy, file = "lotr_tidy.csv")
+```
+
+## Tidy Lord of the Rings data
+
+Notice that tidy data is generally *taller and narrower*. It doesn't fit nicely on the page. Certain elements get repeated a lot, e.g. `Hobbit`. For these reasons, we often instinctively resist *tidy* data as inefficient or ugly. But, unless and until you're making the final product for a textual presentation of data, ignore your yearning to see the data in a compact form.
+
+## Benefits of tidy data
+
+With the data in tidy form, it's natural to *get a computer* to do further summarization or to make a figure. This assumes you're using language that is "data-aware", which R certainly is. Let's answer the questions posed above.
+
+### What's the total number of words spoken by male hobbits?
+
+```{r, live=TRUE}
+lotr_tidy %>%
+  count(Gender, Race, wt = Words)
+## outside the tidyverse:
+# aggregate(Words ~ Gender, data = lotr_tidy, FUN = sum)
+```
+
+Now it takes a small bit of code to compute the word total for both genders of all races across all films. The total number of words spoken by male hobbits is `r lotr_tidy %>% filter(Race == 'Hobbit', Gender == 'Male') %>% summarize(sum(Words))`. It was important here to have all word counts in a single variable, within a data frame that also included a variables for gender and race.
+
+### Does a certain race dominate a movie? Does the dominant race differ across the movies?
+
+First, we sum across gender, to obtain word counts for the different races by movie.
+
+```{r, live=TRUE}
+(by_race_film <- lotr_tidy %>%
+  group_by(Film, Race) %>%
+  summarize(Words = sum(Words)))
+## outside the tidyverse:
+# (by_race_film <- aggregate(Words ~ Race * Film, data = lotr_tidy, FUN = sum))
+```
+
+We can stare hard at those numbers to answer the question. But even nicer is to depict the word counts we just computed in a barchart. We'll use `ggplot2` for this - don't focus on the syntax right now as we'll cover it extensively in a later lesson, but here's a preview!
+
+```{r barchart-lotr-words-by-film-race, live=TRUE}
+p <- ggplot(by_race_film, aes(x = Film, y = Words, fill = Race))
+p + geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() + guides(fill = guide_legend(reverse = TRUE))
+```
+
+Hobbits are featured heavily in The Fellowship of the Ring, whereas Men had a lot more screen time in The Two Towers. They were equally prominent in the last movie, The Return of the King.
+
+Again, it was important to have all the data in a single data frame, all word counts in a single variable, and associated variables for Film and Race.
+
+## From tidy to untidy
+
+Enough about tidy data. How do I make it messy?
+
+This might be useful at the end of an analysis, for preparing figures or tables.
+
+Our tidy data looks like this:
+
+```{r}
+lotr_tidy
+```
+
+Now we practice with `pivot_wider`: let's create three columns storing the values from the old `Race` variable.
+
+```{r, live=TRUE}
+## practicing with spread: one variable per Race
+lotr_tidy %>%
+  pivot_wider(names_from = Race, values_from = Words)
+```
+
+Here is how to read what we just did: New columns will be created, using names from the current column `Race`; values for these new columns will be taken from the current column `Words`.
+
+Let's do the same, this time using the `Gender` variable.
+
+```{r, live=TRUE}
+## practicing with spread: one variable per Gender
+lotr_tidy %>%
+  pivot_wider(names_from = Gender, values_from = Words)
+```
+
+Now we combine together the values from `Race` and `Gender` through the `unite()` function, and populate new columns based on these new values.
+
+```{r}
+## practicing with spread ... and unite: one variable per combo of Race and Gender
+lotr_tidy %>%
+  unite(Race_Gender, Race, Gender, sep = "_") %>%
+  pivot_wider(names_from = Race_Gender, values_from = Words)
+```
+
+# Resources
+
+-   Original LOTR tutorial: [Jenny Bryan](https://github.com/jennybc/lotr)
+
+# License
+
+These handouts are available under the [Creative Commons - Attribution-ShareAlike 4.0 International Licence](https://creativecommons.org/licenses/by-sa/4.0/) and were adapted from [Jenny Bryan's STAT 545](https://stat545.com/) available under the same license.

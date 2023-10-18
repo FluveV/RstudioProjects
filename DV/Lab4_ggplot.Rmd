@@ -1,0 +1,686 @@
+---
+title: "A gentle introduction to ggplot2"
+author: "Marco Chierici"
+date: "Mar 29, 2023"
+output: 
+  html_document:
+    theme: readable
+    toc: true
+    toc_float: true
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60),
+                      tidy = TRUE,
+                      warning = FALSE,
+                      error = TRUE,
+                      collapse = TRUE)
+set.seed(4561)
+```
+
+# Intro
+
+[*ggplot2*](https://en.wikipedia.org/wiki/Ggplot2) is a data visualization package for the statistical programming language R. Created by [Hadley Wickham](https://vita.had.co.nz/papers/layered-grammar.pdf) in 2005, `ggplot2` is an implementation of Leland Wilkinson's [Grammar of Graphics](https://www.springer.com/it/book/9780387245447) --- a general scheme for data visualization which breaks up graphs into semantic components such as scales and layers. `ggplot2` can serve as a replacement for the base graphics in R and contains a number of defaults for web and print display of common scales. Since 2005, `ggplot2` has grown in use to become one of the most popular R packages. It is licensed under GNU GPL v2.
+
+Nowadays `ggplot2` is acknowledged as the most elegant and aesthetically pleasing graphics framework available in R.
+
+In contrast to base R graphics, `ggplot2` allows the user to add, remove or alter components in a plot at a high level of abstraction.
+
+This abstraction comes at a cost: the way you make plots in `ggplot2` is very different from base graphics making the learning curve steep.
+
+One potential limitation of base R graphics is the "pen-and-paper model" utilized to populate the plotting device.
+
+The distinctive feature of the `ggplot2` framework is the way you make plots through adding *layers*. As such, `ggplot2` allows for a high degree of modularity; the same underlying data can be transformed by many different scales or layers.
+
+`ggplot2` is usually loaded into R through the [tidyverse](https://www.tidyverse.org/), a collection of R packages introduced by Hadley Wickham that *share an underlying design philosophy, grammar, and data structures* of tidy data (see Labs 1-2).
+
+A number of packages extending `ggplot2` functionalities have appearedl; for example:
+
+-   [`ggforce`](https://exts.ggplot2.tidyverse.org/ggforce.html)
+-   [`ggrepel`](https://exts.ggplot2.tidyverse.org/ggrepel.html)
+-   [`gganimate`](https://exts.ggplot2.tidyverse.org/gganimate.html)
+
+```{r}
+library(tidyverse)
+```
+
+## The components of the Grammar of Graphics
+
+The Grammar of Graphics is based on the idea that you can build every graph from the same few components.
+
+The components are:
+
+-   **Data**
+-   **Mapping**
+-   **Geometries**
+-   Statistics
+-   Scales
+-   Facets
+-   Coordinates
+-   Theme
+
+The first three components, highlighted in bold, are those required to produce plots in `ggplot2`.
+
+In this session, we will mainly focus on the **data**, the **mapping**, the **statistics**, the **geometries** and the **theme**.
+
+## ggplot2's essential components
+
+The three main components that we have to provide are:
+
+1.  Where the **data** comes from,
+2.  the **aesthetic mappings**, and
+3.  a **geometry**.
+
+## Understanding the *ggplot* syntax
+
+The syntax for constructing ggplots could be puzzling if you are a beginner or work primarily with base graphics. The main difference is that, unlike base graphics, ggplot works with dataframes (tibbles) and not individual vectors. All the data needed to make the plot is typically contained within the dataframe supplied to the `ggplot()` call itself or can be supplied to the respective geometries.
+
+The second noticeable feature is that you can keep enhancing the plot by adding more layers (and themes) to an existing plot created using the `ggplot()` function.
+
+For our first example, we use the `msleep` dataset (from the ggplot2 library), which contains data about mammals' sleeping patterns. You can find out about the dataset with `?msleep`.
+
+Let's start with specifying where the **data** comes from in the `ggplot()` function:
+
+```{r, live=TRUE}
+ggplot(data = msleep)
+```
+
+This is not very interesting: nothing is produced!
+
+We need to tell ggplot2 *what* we want to visualise, by **mapping** *aesthetic elements* (like our axes) to *variables* from the data. We want to visualize how common different conservation statuses are, so let's associate the right variable to the x axis:
+
+```{r, live=TRUE}
+ggplot(data = msleep, mapping = aes(x = conservation))
+```
+
+ggplot2 has done what we asked it to do: the conservation variable is on the x axis. But **still nothing is shown** on the plot area. This is because ggplot doesn't assume that you meant a scatterplot or a line chart to be drawn. I have only told ggplot what data to use and what column should be used for the X axis. I haven't explicitly asked it to draw any points. Also note that the `aes()` function is used to specify the X (and Y) axes: any information that is part of the source dataframe has to be specified inside the `aes()` function.
+
+To get an actual plot, we need to define *how* to represent the data, with a *geometry* function (`geom_*`):
+
+```{r, live=TRUE}
+ggplot(data = msleep, mapping = aes(x = conservation)) +
+  geom_bar()
+```
+
+Now we have a useful plot!
+
+We can see that a lot of animals in this dataset don't have a conservation status, and that "least concern" (`lc`) is the next most common value.
+
+We can see our three essential elements in the code:
+
+1.  the **data** comes from the `msleep` object;
+2.  the variable `conservation` is **mapped to the aesthetic** `x` (i.e. the x axis);
+3.  the **geometry** is `"bar"`, for "bar chart".
+
+Here, we don't need to specify what variable is associated to the y axis, as the "bar" geometry automatically does a count of the different values in the `conservation` variable. That is what **statistics** are applied automatically to the data.
+
+In ggplot2, each geometry has default statistics, so we often don't need to specify which stats we want to use. We could use a `stat_*()` function instead of a `geom_*()` function, but most people start with the geometry (and let ggplot2 pick the default statistics that are applied).
+
+There are `geom_*` functions for a wide range of geometries, including histograms, boxplots, polygons, etc.
+
+## Basic ggplot2 workflow: recap
+
+1.  Calling `ggplot2(data)` on some data just creates a blank canvas
+2.  Adding an aesthetics mapping with `ggplot2(data, aes(x=..., y=...))` creates a canvas with the specified variables mapped to the axes
+3.  Adding a geometry layer such as `geom_point()`, `geom_bar()`, `geom_line()` tells `ggplot2` which kind of plot we actually want.
+
+Let's see this with a new dataset: `mpg` ("miles per gallon"), a dataset about fuel efficiency of different models of cars.
+
+```{r eval=FALSE}
+?mpg
+str(mpg)
+```
+
+```{r, live=TRUE}
+# create a blank canvas
+ggplot(mpg)
+
+# map data variables to axes
+ggplot(mpg, aes(x=displ, y=cty))
+
+# plot data as points
+ggplot(mpg, aes(x=displ, y=cty)) + geom_point()
+```
+
+## More geometric shapes
+
+Elaborating on this basic workflow, you can use `ggplot2` to create almost any kind of plot. Some plots require an `x` and `y` mapping (two-variable plots), like scatterplots, while others require just an `x` mapping (one-variable plots), like histograms.
+
+```{r, live=TRUE}
+ggplot(mpg, aes(x=class)) + geom_bar()
+ggplot(mpg, aes(x=hwy)) + geom_histogram()
+```
+
+# Simple Scatterplots
+
+Let's have a look at another dataset:
+
+```{r}
+?economics
+str(economics)
+```
+
+Do you think that unemployment is stable over the years? Let's make a scatterplot on top of the blank ggplot by adding points using a geom layer called `geom_point`:
+
+```{r, live=TRUE}
+ggplot(economics, aes(x = date, y = unemploy)) + 
+    geom_point()
+```
+
+Notice how we stopped using the argument names (`data=`, `mapping=`) because we know in which order they appear: first the data, then the mapping of aesthetics. Let's save ourselves some typing from now on!
+
+Let's go through our essential elements once more:
+
+-   The `ggplot()` function initialises a ggplot object. In it, we declare the **input data frame** and specify the set of plot aesthetics used throughout all layers of our plot;
+-   The `aes()` function groups our **mappings of aesthetics to variables**;
+-   The `geom_<...>()` function specifies what **geometric element** we want to use.
+
+Scatterplots are often used to look at the relationship between two variables.
+
+Going back to the `mpg` data set, do you think that big engines use fuel more efficiently than small engines?
+
+We can focus on two variables:
+
+-   `displ`: a car's engine size (litres)
+-   `hwy`: a car's fuel efficiency on the highway (miles per gallon)
+
+```{r, live=TRUE}
+ggplot(mpg, aes(x = displ, y = hwy)) +
+    geom_point()
+```
+
+Notice how the points seem to be aligned on a grid? That's because the data was rounded. If we want to better visualise the distribution of the points and avoid overlapping of points, we can use the "jitter" geometry instead, which gives the points a little shake:
+
+```{r, live=TRUE}
+set.seed(1)
+ggplot(mpg, aes(x = displ, y = hwy)) +
+    geom_jitter()
+```
+
+The plot shows a negative relationship between engine size (`displ`) and fuel efficiency (`hwy`). In other words, cars with big engines use more fuel. Does this confirm or refute your hypothesis about fuel efficiency and engine size?
+
+# Adding aesthetics
+
+Further aesthetics link properties of the data to visual characteristics: for example, position, color, size, shape, or transparency.
+
+All aesthetics for a plot are specified inside the `aes()` function in the first call to `ggplot()`. Individual geometry layers can have their own aesthetics too: more about this shortly.
+
+In our previous scatterplot of `hwy` vs. `displ`, we can highlight the "class" factor by adding a new aesthetic:
+
+```{r, live=TRUE}
+gg <- ggplot(mpg, aes(x = displ, y = hwy, color = class)) +
+  geom_jitter()
+print(gg)
+```
+
+As a bonus, the legend is added automatically. If needed, it can be removed by setting `legend.position=None` from within a `theme()` function (more on this later):
+
+```{r, live=TRUE}
+# remove legend
+gg + theme(legend.position="None")
+```
+
+Also, you can change the color palette entirely:
+
+```{r, live=TRUE}
+gg + scale_colour_brewer(palette = "Set1")  # change color palette
+```
+
+More of such palettes can be found in the *RColorBrewer* package:
+
+```{r}
+library(RColorBrewer)
+head(brewer.pal.info, 10)  # show 10 palettes
+```
+
+![](http://r-statistics.co/screenshots/color_palettes.png)
+
+From the above scatterplot, it seems that two-seaters are more fuel efficient than other cars with a similar engine size, which can be explained by the lower weight of the car. The general trend starts to make more sense!
+
+What happens if we specified `aes(color="blue")`?
+
+```{r, live=TRUE}
+ggplot(mpg, aes(x = displ, y = hwy, color = "blue")) +
+    geom_jitter()
+```
+
+Compare with the following:
+
+```{r, live=TRUE}
+ggplot(mpg, aes(x = displ, y = hwy)) +
+    geom_jitter(color="blue")
+```
+
+We now know how to create a simple scatterplot, and how to visualise extra variables. But how can we better represent a correlation?
+
+# Trend lines
+
+A trend line can be created with the `geom_smooth()` function:
+
+```{r, live=TRUE}
+ggplot(mpg, aes(x = displ, y = hwy)) +
+  geom_jitter(alpha=0.4)+ 
+  geom_smooth()
+```
+
+The console shows you what function / formula was used to draw the trend line (in this case, the loess method). This is important information, as there are countless ways to do that. To better understand what happens in the background, open the function's help page and notice that the default value for the `method` argument is "NULL". Read up on how it automatically picks a suitable method depending on the sample size, in the "Arguments" section.
+
+Want a linear trend line instead? Add the argument `method = "lm"` to the smoothing function:
+
+```{r, live=TRUE}
+ggplot(mpg, aes(x = displ, y = hwy)) +
+    geom_smooth(method = "lm")
+```
+
+# Layering
+
+The power of ggplot2 is that you can add many different geometries to a plot!
+
+A trend line is usually displayed on top of a scatterplot. You can combine ("add") several layers with the `+` operator:
+
+```{r, live=TRUE}
+ggplot(mpg, aes(x = displ, y = hwy)) +
+    geom_point() +
+    geom_smooth()
+```
+
+The order of the functions matters: the points will be drawn before the trend line, which is probably what you're after.
+
+```{r, live=TRUE}
+ggplot(mpg, aes(x = displ, y = hwy)) +
+    geom_smooth() +
+    geom_point()
+```
+
+The aesthetics for each `geom_` can be different, and you can also pass a different `data` argument to each `geom_` layer.
+
+In the following example we specify different colors for the points and the smoothing line:
+
+```{r, live=TRUE}
+ggplot(mpg, aes(x = displ, y = hwy)) +
+  geom_point(color="blue") +
+  geom_smooth(color="darkred")
+```
+
+# Changing x and y axis limits
+
+There are two ways to change x and y axis limits:
+
+-   With the layers `xlim(x1, x2)`, `ylim(y1, y2)`
+-   With the layer `coord_cartesian(xlim=c(x1, x2), ylim=c(y1, y2))`
+
+They are not really equivalent!
+
+```{r, live=TRUE}
+gg <- ggplot(mpg, aes(x = displ, y = hwy)) + geom_point(color="blue")
+print(gg)
+gg + xlim(3, 7)
+
+gg + geom_smooth(method="lm")
+gg + geom_smooth(method="lm") + xlim(3, 7)
+
+gg + geom_smooth(method="lm") + coord_cartesian(xlim=c(3, 7))
+```
+
+So with `xlim()` and `ylim()` the points outside the specified range are deleted, thus actually changing the smoothing lines. This feature might come in handy when you wish to know how the line of best fit would change when some extreme values (or outliers) are removed.
+
+With `coord_cartesian()`, instead, you zoom in to the region of interest without deleting the points.
+
+# The `color` aesthetic
+
+We can add further information to our visualisation by mapping the `class` variable to the `color` aesthetic:
+
+```{r, live=TRUE}
+ggplot(mpg, aes(x = displ, y = hwy)) + 
+    geom_point(aes(color = class)) + 
+    geom_smooth()
+```
+
+## Challenge 1 -- where should aesthetics be defined?
+
+Consider the last plot we created.
+
+What would happen if you moved the `colour = class` aesthetic from the geometry function to the `ggplot()` call?
+
+Different geometries can also have their own mappings that overwrite the defaults. If you place mappings in a geom function, ggplot2 will treat them as local mappings for the layer. It will use these mappings to extend or overwrite the global mappings for that layer only. This makes it possible to display different aesthetics in different layers.
+
+```{r, live=TRUE}
+p1 <- ggplot(mpg, aes(x = displ, y = hwy, color = class))
+p1 + geom_point() + geom_smooth(se=FALSE)
+
+p1 <- ggplot(mpg, aes(x = displ, y = hwy))
+p1 + geom_point(aes(color = class)) + geom_smooth(se=FALSE, color="black")
+```
+
+## Challenge 2 -- add a 3rd variable and a smooth line
+
+Take our previous "economics" scatterplot:
+
+```{r eval=FALSE}
+ggplot(economics, aes(x = date, y = unemploy)) + 
+    geom_point()
+```
+
+How could we:
+
+1.  Add a trend line for the number of unemployed people
+2.  Colour the points according to the median duration of unemployment (see `?economics`)
+
+```{r, live=TRUE}
+ggplot(economics, aes(x = date, y = unemploy)) + 
+    geom_point(aes(colour = uempmed)) +
+    geom_smooth()
+```
+
+See how the legend changes depending on the type of data mapped to the `colour` aesthetic? (i.e. categorical vs continuous)
+
+This "trend line" is not particularly useful. We could make it follow the data more closely by using the `span` argument. The closer to 0, the closer to the data the smoother will be:
+
+```{r, live=TRUE}
+ggplot(economics, aes(x = date, y = unemploy)) + 
+    geom_point(aes(colour = uempmed)) +
+    geom_smooth(span = 0.1)
+```
+
+You can now see why this is called a "smoother": we can fit a smooth curve to data that varies a lot.
+
+To further refine our visualisation, we could visualise the unemployment rate (e.g. as % of the population) rather than the number of unemployed people, by calculating is straight into our code:
+
+```{r, live=TRUE}
+ggplot(economics, aes(x = date, y = unemploy / pop)) + 
+    geom_point(aes(colour = uempmed)) +
+    geom_smooth(span = 0.1)
+```
+
+The [early 1980s recession](https://en.wikipedia.org/wiki/Early_1980s_recession) now seem to have had a more significant impact on unemployment than the [Global Financial Crisis](https://en.wikipedia.org/wiki/Financial_crisis_of_2007%E2%80%9308) of 2007-2008.
+
+# Managing scales
+
+As soon as you specify an `aes()` mapping, `ggplot2` automatically uses a *scale* to compute the range of values of the variables. So when you write
+
+```{r}
+ggplot(mpg, aes(x=displ, y=cty, color=class)) + geom_point()
+```
+
+under the hood `ggplot2` adds a scale for each mapping:
+
+```{r}
+ggplot(mpg, aes(x=displ, y=cty, color=class)) + geom_point() +
+  scale_x_continuous() +
+  scale_y_continuous() +
+  scale_color_discrete()
+```
+
+One of the parameters you'll most likely would like to change is the set of colors to use. A convenient option is to leverage predefined palettes from <http://colorbrewer.org> with the `scale_color_brewer()` function:
+
+```{r, live=TRUE}
+ggplot(mpg, aes(x=displ, y=cty, color=class)) + geom_point() +
+  scale_color_brewer("Set3")
+```
+
+You can also specify continuous color values using a gradient scale, or manually specify the colors you like as a named vector.
+
+Hint: here's a convenient online tool for finding out hexadecimal color codes! <https://www.color-hex.com/>
+
+# Bar charts
+
+Let's use the `diamonds` dataset now. The `diamonds` dataset comes with ggplot2 and contains information about \~54,000 diamonds, including the price, carat, color, clarity, and cut of each diamond.
+
+Let's have a look at the data:
+
+```{r eval=FALSE}
+diamonds
+summary(diamonds)
+?diamonds
+```
+
+A bar chart is a type of plot made from one discrete variable.
+
+Consider a basic bar chart, as drawn with `geom_bar()`, to display the total number of diamonds grouped by cut:
+
+```{r}
+ggplot(diamonds, aes(x = cut)) + 
+  geom_bar()
+```
+
+The chart shows that more diamonds are available with high quality cuts than with low quality cuts.
+
+`cut` is an *ordered factor*, which you can confirm by printing it to the console:
+
+```{r}
+head(diamonds$cut)
+```
+
+```{r, live=TRUE}
+# how to create an ordered factor?
+factor(c("fair", "worst", "top", "good"), 
+       levels=c("worst", "fair", "good", "top"),
+       ordered=TRUE)
+```
+
+## Statistical transformations
+
+Another interesting observation about `geom_bar` is that it automatically *counted* the number of elements belonging to each level of `diamonds$cut`: these counts are not part of the data set. In other words, a *statistical transformation* (`stat_count`) was implicitly applied to the data.
+
+There are many other statistical transformations: for example, "identity" leaves the data "as is" and can be useful when you already have a count variable and want to create a bar chart from it, like in the following example.
+
+```{r, live=TRUE}
+cut_count <- dplyr::count(diamonds, cut)
+cut_count
+
+ggplot(cut_count, aes(x=cut, y=n)) + geom_bar(stat="identity")
+```
+
+Besides passing a statistical transformation as argument to a `geom` layer, you can use a statistical function itself as a layer!
+
+In the previous scatterplot of highway consumption vs. displacement, suppose we want to add the mean highway consumption at each displacement value.
+
+```{r, live=TRUE}
+ggplot(mpg, aes(displ, hwy)) +
+  geom_point(color="lightblue") +
+  stat_summary(fun="mean", geom="line", linewidth=1, linetype="dashed")
+```
+
+## Position arguments
+
+Each geometry layer has a default position adjustment that defines how different components should be positioned relative to each other.
+
+This is particularly evident in the `geom_bar` layer if we map a variable to a color:
+
+```{r, live=TRUE}
+gg <- ggplot(diamonds, aes(x=cut, fill=color))
+gg + geom_bar()
+```
+
+We notice that by default each of the rectangles is stacked on top of each other: this is because the default position adjustment for `geom_bar` is `position="stack"`.
+
+Changing the position allows us to obtain different variations of a bar plot:
+
+```{r, live=TRUE}
+gg <- ggplot(diamonds, aes(x=cut, fill=color))
+gg + geom_bar(position="dodge")
+```
+
+```{r, live=TRUE}
+gg <- ggplot(diamonds, aes(x=cut, fill=color))
+gg + geom_bar(position="fill")
+```
+
+# Customising a plot
+
+## Change a geometry's default colour
+
+First, we can pick our favourite colour in `geom_bar()`:
+
+```{r, live=TRUE}
+ggplot(diamonds, aes(x = cut)) + 
+  geom_bar(fill = "tomato")
+```
+
+If you are curious about what colour names exist in R, you can use the `colours()` function.
+
+## Change labels
+
+We can (better: should!) also add labels (e.g. title, subtitle, X and Y axis labels) to make our plot more self-explanatory. Here are two methods: method #1 uses `xlab()`, `ylab()`, and `ggtitle()` functions as separate layers.
+
+```{r, live=TRUE}
+# base plot
+# gg <- ggplot(diamonds, aes(x=cut)) + geom_bar(fill="tomato")
+gg <- ggplot(diamonds, aes(x=cut)) + geom_bar(fill="tomato")
+
+# add x & y axis labels and a title
+g2 <- gg + xlab("Quality of the cut") + ylab("Number of diamonds")
+print(g2)
+g2 + ggtitle("Where are the bad ones?")
+g2 + ggtitle("Where are the bad ones?", subtitle="Breakdown by cut quality")
+```
+
+Method #2 uses a single function `labs()` where you can specify all of the above, plus a caption!
+
+```{r, live=TRUE}
+gg <- ggplot(diamonds, aes(x=cut)) + geom_bar(fill="tomato")
+
+gg + labs(title = "Where are the bad ones?",
+          subtitle = "Breakdown by cut quality",
+          caption = "source: diamonds dataset (ggplot2)",
+          x = "Quality of the cut",
+          y = "Number of diamonds")
+```
+
+## Horizontal bar charts
+
+Want to draw a horizontal bar chart? Easy peasy: just add `coord_flip()` as your final layer!
+
+```{r, live=TRUE}
+gg + coord_flip()
+```
+
+This is particularly helpful when long category names overlap under the x axis.
+
+## Built-in themes
+
+It is easy to apply a built-in theme using one of the `theme_*()` functions, like `theme_bw()`:
+
+```{r, live=TRUE}
+gg + theme_bw()
+
+gg + theme_minimal()
+
+gg + theme_classic()
+
+gg + theme_dark()
+```
+
+If you want more options, install the `ggthemes` package!
+
+If you need more tweaking, the `theme()` function allows you to really get into the details of the plot's look. We already saw an example of this when we switched off the legend:
+
+```{r}
+ggplot(diamonds, aes(x = cut, fill = color)) +
+  geom_bar() +
+  theme(legend.position="none")
+```
+
+What if I wanted to also apply a predefined theme at the same time?
+
+```{r, live=TRUE}
+ggplot(diamonds, aes(x = cut, fill = color)) +
+  geom_bar() +
+  theme(legend.position="none") +
+  theme_minimal()
+
+ggplot(diamonds, aes(x = cut, fill = color)) +
+  geom_bar() +
+  theme_minimal() +
+  theme(legend.position="none")
+
+```
+
+First apply a theme, and then alter its properties.
+
+The properties of other theme items, like text font and size, can be altered within `theme()` by using special `element_` functions. They are of 4 major types.
+
+1.  `element_text()`: operates on textual properties (title, subtitle and captions)
+2.  `element_line()`: modifies line-based components (axis lines, major and minor grid lines, etc.)
+3.  `element_rect()`: modifies rectangle components such as plot and panel background
+4.  `element_blank()`: turns off displaying the theme item.
+
+```{r}
+# base plot
+gg <- ggplot(diamonds, aes(x = cut, fill = color)) +
+  geom_bar() +
+  labs(title="Diamond cut quality",
+       x="Quality of the cut",
+       y="Number of diamonds") +
+  theme_minimal()
+print(gg)
+
+gg + theme(legend.position="none",
+           plot.title=element_text(size=20, 
+                                   face="bold", 
+                                   family="Roboto",
+                                   color="turquoise",
+                                   hjust=0.5,
+                                   lineheight=1.2),
+           axis.title.x=element_text(size=15),
+           axis.title.y=element_text(size=15),
+           axis.text.x=element_text(angle=30, vjust=0.5, size=11),
+           axis.text.y=element_text(size=11),
+)
+```
+
+## Saving plots
+
+Like your visualization? It may be tempting to export it with the "Export" menu in the "Plots" pane, but...
+
+Do not succumb to the temptation of a mouse-based process. If might feel handy at the time, but you will regret it. This establishes no link between the source code and the figure product.
+
+To save the last plot with a command, you can use the `ggsave()` function:
+
+```{r eval=FALSE}
+ggsave(filename = "plots/diamond.png")
+```
+
+This is great to automate the export process for each plot in your script, but `ggsave()` also has extra options, like setting the DPI, which is useful for getting the right resolution for a specific use. For example, to export a plot for your presentation:
+
+```{r eval=FALSE}
+ggsave(filename = "plots/barplot_pres.png", dpi = "screen")
+```
+
+Note that the `dpi` argument can be either a number (e.g., 72) or a string (e.g., "screen", equivalent to 72).
+
+About file formats:
+
+-   PDF is a good, quick option to export an easily shareable file with vector graphics.
+-   PNG is a good compressed format for graphics, but if you want to further customise your visualisation in a different program, use SVG or EPS, which are vector formats. (Try to open an SVG file in [Inkscape](https://inkscape.org/) for example.)
+
+# Assignment
+
+Using the `mpg` data set, create a boxplot of city fuel consumption for each class of vehicle (i.e., subcompact, compact, midsize, etc.).
+
+Additionally, label the x-axis as "Vehicle Class" and the y-axis as "City MPG", and add an informative title. Include short details about the data set as a figure caption.
+
+```{r}
+consumption <- ggplot(mpg, aes()) +
+  geom_boxplot(aes(class, displ, color=class), outlier.shape = NA) + 
+  coord_flip() +
+  theme(legend.position = "None") 
+
+consumption + labs(title = "I bet that doesn't pollute much!",
+       caption = "Breakdown by fuel consumption of the most popular vehicles", xlab("Vehicle Class"), ylab("Engine Displacement")) 
+```
+
+# Resources
+
+-   ggplot2 cheatsheet: <https://github.com/rstudio/cheatsheets/blob/master/data-visualization.pdf>
+-   Official ggplot2 documentation: <http://docs.ggplot2.org/current/>
+-   Official ggplot2 website: <http://ggplot2.tidyverse.org/>
+-   Chapter on data visualisation in the book *R for Data Science*: <http://r4ds.had.co.nz/data-visualisation.html>
+
+# License
+
+These materials were partly abridged from work by Stéphane Guillou and Hadley Wickham.

@@ -1,0 +1,587 @@
+---
+title: "ggplot2: further case studies"
+author: "Marco Chierici"
+date: "Apr 19, 2023"
+output: 
+  html_document:
+    theme: readable
+    toc: true
+    toc_float: true
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60),
+                      tidy = TRUE,
+                      warning = FALSE,
+                      error = TRUE,
+                      message = FALSE,
+                      collapse = TRUE)
+set.seed(4561)
+```
+
+
+# Encircling
+
+When presenting the results, sometimes you would encircle certain groups of points or regions in the chart so as to draw the attention to those peculiar cases.
+
+```{r}
+gg <- ggplot(midwest, aes(x=area, y=poptotal)) +
+  geom_point(aes(color=state, size=popdensity)) +
+  geom_smooth(method="loess", se=FALSE) + 
+  xlim(0, 0.1) + ylim(0, 500000)
+gg
+```
+
+Encircling can be conveniently done using `geom_encircle()` in the `ggalt` package.
+Usually, you first select the points to be encircled through a filtered view of the original data.
+
+```{r, live=TRUE}
+library(ggalt)
+midwest_select <- midwest %>% dplyr::filter(poptotal > 350000,
+                                            poptotal <= 500000,
+                                            area > 0.01,
+                                            area < 0.1)
+
+gg +
+  geom_encircle(aes(x=area, y=poptotal), data=midwest_select,
+                color="red", size=2,
+                expand=0.08)
+```
+
+
+# Counts chart
+
+This is an alternative to a jittered scatterplot: wherever there is more points overlap, the size of the circle is increased. The geometry layer is `geom_count()`.
+
+```{r}
+# base plot
+g <- ggplot(mpg, aes(cty, hwy))
+
+# standard jittered scatterplot
+g + geom_jitter()
+```
+
+```{r, live=TRUE}
+# counts chart (legend is on by default)
+g + geom_count(col="tomato3")
+g + geom_count(col="tomato3", show.legend=FALSE)
+```
+
+# Bubble plot
+
+Bubble plots are a special kind of scatterplots showing 4-dimensional data, where two of them are numeric (X and Y), one other categorical (color), and another numeric (size). You can create bubble plots in `ggplot2` with the usual `geom_point` or `geom_jitter` geometries, properly adjusting the `aes`.
+
+In the following example, we display the city mileage (`cty`) versus engine displacement (`displ`), encoding information about manufacturer as color and about highway consumption (`hwy`) as size.
+
+```{r}
+# subset the data
+mpg_select <- mpg %>% dplyr::filter(manufacturer %in% c("audi", "ford", "honda", "hyundai"))
+
+# base plot
+g <- ggplot(mpg_select, aes(displ, cty)) + 
+    labs(subtitle="mpg: City Mileage vs. Displacement",
+         title="Bubble chart")
+```
+
+```{r, live=TRUE}
+# bubble plot
+g + geom_jitter(aes(col=manufacturer, size=hwy)) + 
+    geom_smooth(aes(col=manufacturer), method="lm", se=F)
+```
+
+The bubble chart clearly distinguishes the range of `displ` between the manufacturers and how the slope of best-fit lines varies, providing a better visual comparison between the groups.
+
+
+# Scatterplot with marginal distribution
+
+If you want to show the relationship as well as the distribution in the same chart, use a scatterplot with histograms of the X and Y variables at its margins. Instead of histograms, you can also plot marginal boxplots or density curves.
+
+This is implemented in the `ggMarginal()` function from the `ggExtra` package.
+
+```{r}
+# starting point
+g <- ggplot(mpg, aes(cty, hwy)) + 
+  geom_count(show.legend=FALSE) + 
+  geom_smooth(method="lm", se=F)
+g
+```
+
+
+```{r, live=TRUE}
+library(ggExtra)
+ggMarginal(g, type="histogram", fill="transparent") # type: boxplot, density, densigram
+```
+
+# Correlogram
+
+Correlograms are useful to examine the correlation of multiple continuous variables in the same dataframe. They are conveniently implemented in the `ggcorrplot` function & package.
+
+```{r}
+# install.packages("ggcorrplot")
+library(ggcorrplot)
+data(mtcars)
+# compute the correlation matrix
+corr <- round(cor(mtcars), 1)
+```
+
+
+```{r, live=TRUE}
+ggcorrplot(corr) # default
+ggcorrplot(corr, type="lower") # less ink, same information
+ggcorrplot(corr, type="lower", lab=TRUE) # add corr. coefficients
+ggcorrplot(corr, type="lower", lab=TRUE, lab_size=3, method="circle",
+           colors=c("tomato2", "white", "springgreen3"), # colors for low, mid, high correlation values
+           title="Correlogram of mtcars",
+           ggtheme=theme_bw)
+```
+
+
+# Diverging bars
+
+A "diverging bars" plot shows variance above and below a reference line (usually, at $x=0$). Here's an example that we are going to reproduce:
+
+```{r, echo=FALSE}
+knitr::include_graphics("https://drive.google.com/uc?id=1oNKiXluhGrHNAqWIM-bPvPNsOS-cf4T1")
+```
+
+Typically, you first compute the Z score of the variable of interest, create a 2-level categorical variable for $Z>0$ and $Z<0$, and then tweak `geom_bar` a little bit, making sure to use `stat="identity"` and to provide both x (categorical) and y (numeric) inside `aes()`.
+
+```{r}
+datf <- tibble::rownames_to_column(mtcars, var="car") %>% # create new column for car names
+  mutate(mpg_z=round(scale(mpg), 2), # compute Z scores
+         mpg_type=ifelse(mpg_z<0, "below", "above")) %>% 
+  arrange(mpg_z) # sort in ASC order
+```
+
+
+```{r, live=TRUE}
+datf$car <- factor(datf$car, levels=datf$car) # convert to factor to retain sorted order in plot; equivalent: datf <- datf %>% mutate(car=fct_inorder(car))
+
+g <- ggplot(datf, aes(x=car, y=mpg_z, label=mpg_z)) +
+  geom_bar(stat="identity", aes(fill=mpg_type)) +
+  coord_flip()
+
+g + scale_fill_manual(name="Mileage", 
+                      labels=c("Above avg", "Below avg"), 
+                      values=c("above"="springgreen3", "below"="tomato3")) +
+  labs(title="Diverging bars", subtitle="Normalized mileage from mtcars", x="Car name") +
+  theme_bw()
+```
+
+
+# Dot plot
+
+Dot plots, or Cleveland dot plots, are an alternative to bar charts, especially if you have many items to show. They don't use as much ink as bar charts and they are easier to read!
+
+This is what we are going to plot:
+
+```{r, echo=FALSE}
+knitr::include_graphics("https://drive.google.com/uc?id=10gxGAMwfoCeB-0J7ukeNMcUnQVYdVFDt")
+```
+
+First we have to do some prep work:
+
+```{r}
+cty_mpg <- mpg %>% group_by(make=manufacturer) %>% 
+  summarise(mileage=mean(cty)) %>% 
+  arrange(mileage) %>% 
+  mutate(make=fct_inorder(make)) # refactor to retain sorted order in plot
+```
+
+Now we build the dot plot: notice how to use the `geom_segment()` layer to create the dashed lines.
+
+```{r, live=TRUE, tidy=FALSE}
+ggplot(cty_mpg, aes(x=make, y=mileage)) +
+  geom_point(col="tomato3", size=3) +
+  geom_segment(aes(x=make, xend=make, y=min(mileage), yend=max(mileage)),
+               linetype="dashed", linewidth=0.1) +
+  coord_flip() +
+  labs(title="Dot plot", subtitle="Make vs avg. mileage", caption="source: mpg") +
+  theme_classic()
+```
+
+
+
+# Dumbbell plot
+
+Dumbbell plots (connected dot plots) focus on highlighting *change* and are a great tool if you wish to: 
+
+1. Visualize and relative positions (like growth and decline) between two points in time. 
+2. Compare distances between two categories.
+
+```{r, echo=FALSE}
+knitr::include_graphics("https://drive.google.com/uc?id=1-hCC-q3ObpK8Wb4DRNwwmG92oFMu8Ddn")
+```
+
+In order to get the correct ordering of the dumbbells, the Y variable should be a factor and the levels of the factor variable should be in the same order as it should appear in the plot - as we already did for the diverging bars and the dot plots.
+
+The `ggalt` library includes the special geometry layer `geom_dumbbell()` to create Dumbbell plots.
+
+```{r}
+# data prep
+health <- read.csv("https://raw.githubusercontent.com/selva86/datasets/master/health.csv") %>% 
+  mutate(Area=fct_inorder(Area)) # for the correct ordering of the dumbbells
+```
+
+```{r, live=TRUE}
+db <- ggplot(health, aes(x = pct_2014, xend = pct_2013, y = Area, group = Area)) +
+  geom_dumbbell(color = "#a3c4dc", size = 0.75, colour_xend = "#0e668b")
+print(db)
+```
+
+```{r, tidy=FALSE}
+# add some customization
+db + scale_x_continuous(label = scales::percent) + 
+  labs(x = NULL, y = NULL, title = "Dumbbell Chart", subtitle = "Pct Change: 2013 vs 2014",
+    caption = "Source: https://github.com/hrbrmstr/ggalt") +
+  theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.background = element_rect(fill = "#f7f7f7"),
+        panel.background = element_rect(fill = "#f7f7f7"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_line(),
+        axis.ticks = element_blank(), legend.position = "top", panel.border = element_blank())
+```
+
+
+# Ridgeline plot
+
+Also called "Joy plot" ([source](https://twitter.com/hnrklndbrg/status/883675698300420098)), a ridgeline plot stacks density curves of different groups with a slight overlap. It is a great way to visualize the distribution of a large number of groups in relation to each other.
+
+There is a convenient R implementation in the `ggridges` library, which exposes the new geometry layer `geom_density_ridges()` and the theme `theme_ridges()`. 
+
+```{r, eval=FALSE}
+install.packages("ggridges")
+```
+
+```{r, live=TRUE}
+library(ggridges)
+ggplot(mpg, aes(x=cty, y=class, fill=class)) +
+  geom_density_ridges(scale=2, alpha=0.5, show.legend=FALSE) + # scale controls the amount of overlapping
+  labs(title="Density estimation of city consumption") +
+  theme_ridges() +
+  theme(plot.title=element_text(hjust=0.5))
+```
+
+
+
+# Composition: pies, donuts & waffles
+
+## Pie chart
+
+A pie chart is a circle divided into sectors that each represent a proportion of the whole. Since we humans do not perceive angles very well, it is difficult to correctly interpret a pie chart and to appreciate slight differences in composition.
+
+```{r}
+datf <- data.frame(class=c("SK", "SU", "SH"), freq=c(280, 60, 20)) # a counts table
+datf <- datf %>% mutate(class=fct_inorder(class), freq=freq/sum(freq)) # frequency table
+my_colors <- c("#1C94D2", "#F4E734", "#C5B731") # custom colors
+```
+
+```{r, live=TRUE}
+pie <- ggplot(datf, aes(x="", y=freq, fill=class)) +
+  geom_bar(width=1, stat="identity", color="white") +
+  scale_fill_manual(values=my_colors, name=NULL) +
+  labs(fill="class", x=NULL, y=NULL) +
+  theme_void()
+print(pie)
+
+pie + coord_polar(theta="y", start=pi/1.3)
+```
+
+Another example on the `mpg` data: to alleviate the problem with pie charts, we also add text annotations with the number of elements of each category.
+
+```{r}
+datf <- as.data.frame(table(mpg$class))
+colnames(datf) <- c("class", "freq")
+datf
+
+pie_base <- ggplot(datf, aes(x="", y=freq, fill=class)) +
+  geom_bar(width=1, stat="identity", color="white") +
+  coord_polar(theta="y", start=0)
+pie_base
+```
+
+```{r, live=TRUE}
+pie_base +
+  geom_text(aes(label=freq), position=position_stack(vjust=0.5), show.legend=FALSE) +
+  labs(fill="class", x=NULL, y=NULL) +
+  theme_void()
+```
+
+## Donut chart
+
+A donut chart is a ring divided into sectors that each represent a proportion of the whole: so, it's a pie chart with a hole inside. It suffers the same problem as pie charts.
+
+
+```{r}
+donut_base <- ggplot(datf, aes(x=2, y=freq, fill=class)) + # x=2 instead of x=""
+  geom_bar(stat="identity", color="white") + # no more width=1
+  coord_polar(theta="y", start=0)
+
+donut_base +
+  geom_text(aes(label=freq), position=position_stack(vjust=0.5), show.legend=FALSE) +
+  labs(fill="class", x=NULL, y=NULL) +
+  theme_void() +
+  xlim(0.5, 2.5)
+```
+
+## Waffle chart
+
+A waffle chart can be viewed as a "square pie chart": it is very useful to highlight parts of a whole for categorical quantities. Ideally, you would create a waffle chart as a 10x10 grid, with each square representing 1% of the total.
+
+We can use the `ggwaffle` R library, a recent implementation of waffle charts leveraging `ggplot2`.
+
+You first need to "pour" the data into a `waffle_iron()` and then you can "cook" the waffle chart.
+
+```{r, eval=FALSE}
+install.packages("devtools")
+devtools::install_github("liamgilbey/ggwaffle")
+```
+
+```{r, live=TRUE}
+library(ggwaffle)
+set.seed(1) # required for the sampling in waffle_iron
+wd <- waffle_iron(mpg, aes_d(group=class), rows=10, sample_size=100/nrow(mpg))
+head(wd)
+
+ggplot(wd, aes(x, y, fill=group)) +
+  geom_waffle() +
+  coord_equal() +
+  scale_fill_waffle() +
+  theme_waffle() +
+  theme(axis.title.x=element_blank(), axis.title.y=element_blank(), legend.title=element_blank())
+```
+
+## Treemap
+
+In a treemap, each tile represents a single observation, with the area of the tile proportional to a variable. Let’s start by drawing a treemap with each tile representing a G-20 country. The area of the tile will be mapped to the country’s GDP, and the tile’s fill colour mapped to its HDI (Human Development Index). 
+
+The `treemapify` package provides the basic geom for this purpose, `geom_treemap()`.
+
+```{r}
+# install.packages("treemapify")
+library(treemapify)
+ggplot(G20, aes(area = gdp_mil_usd, fill = hdi)) +
+    geom_treemap()
+```
+
+This plot isn’t very useful without the knowing what country is represented by each tile. 
+
+`geom_treemap_text` can be used to add a text label to each tile. It uses the `ggfittext` package to resize the text so it fits the tile. In addition to standard text formatting aesthetics you would use in `geom_text`, like fontface or colour, we can pass additional options specific for `ggfittext`: for example, we can place the text in the middle of the tile with `place="centre"`.
+
+```{r}
+ggplot(G20, aes(area = gdp_mil_usd, fill = hdi, label = country)) +
+    geom_treemap() +
+    geom_treemap_text(fontface = "italic", colour = "white", place = "centre")
+```
+
+
+# Animation
+
+Animation in ggplot2 can be obtained through the `gganimate` package, which provides a range of new grammar classes that can be added to the plot object in order to customize how it should change with time.
+
+`gganimate` includes a set of *transition functions* that interpret the plot data and distribute them over a number of frames. The transition functions are associated to special variables (*frame variables*) for string literal interpretation, meaning that you can use them to include data from the animation in plot components, such as the title.
+
+- `transition_states`: splits up data by a discrete variable and animates between different states; frame variables: `previous_state`, `closest_state`, `next_state`
+- `transition_time`: the transition occurs over a continuous variable; frame variable: `frame_time`
+- `transition_reveal`: makes the data gradually appear (similarly to `transition_time`, but here the intermediate values are calculated at exact positions); frame variable: `frame_along`
+
+There are also the global frame variables `frame` and `nframes`.
+
+Before we start, we need to install `gganimate` and a couple of dependencies:
+
+```{r gganinate_setup, eval=FALSE}
+install.packages("gganimate")
+install.packages("gifski")
+install.packages("av")
+```
+
+As we will see, the usual `gganimate` workflow is similar to this:
+
+1. create a static `ggplot2` object;
+2. add a `gganimate` transition function;
+3. (optional) set animation aesthetics, such as the ;
+4. show on-screen or save to file.
+
+## A first example: animate a qualitative variable
+
+```{r}
+data(iris)
+```
+
+Using the `iris` data, here we consider a simple scatterplot of Sepal vs. Petal width and let it transition across the three Iris species.
+
+We begin by creating a static ggplot graph.
+
+```{r}
+my_graph <- iris %>%
+    ggplot(aes(x=Sepal.Width, y=Petal.Width)) + 
+    geom_point() + theme_minimal()
+
+print(my_graph)
+```
+
+Now we can create the animation simply by passing the static graph to a transition function: in this case, since Species is categorical, we use `transition_states`.
+
+```{r, live=TRUE}
+library(gganimate)
+
+anim <- my_graph +
+  transition_states(Species, transition_length=2, state_length=1) # wrap=FALSE to avoid transitioning from last to first state
+anim
+
+anim + labs(title="Species: {closest_state}", subtitle="Frame {frame}/{nframes}") # frame variables in action
+```
+
+You can specify the animations to be used when new data appear and old data leave the plot: to make this clear, we color the scatterplot by the Species variable.
+
+```{r}
+my_graph <- iris %>%
+    ggplot(aes(x=Sepal.Width, y=Petal.Width)) + 
+    geom_point(aes(color=Species)) + theme_minimal()
+my_graph
+
+anim <- my_graph +
+  transition_states(Species, transition_length=2, state_length=1)
+anim
+```
+
+
+```{r, live=TRUE}
+anim +
+  enter_fade() + # enter/exit define how new data should appear and old data should leave the plot
+  exit_shrink() +
+  labs(title = "Species: {closest_state}")
+```
+
+Notice that this time the data points are not interpolated between the three Iris species. This is because the `color=Species` aesthetics splits the data into three different groups. Only data belonging to the same group aesthetics are interpreted by `gganimate` as being linked across states.
+
+
+## Animate a quantitative variable
+
+Using the `gapminder` data, we now create an animated scatterplot of life expectancy vs. GDP per capita over the years.
+
+```{r}
+library(gapminder)
+g <- ggplot(gapminder, aes(gdpPercap, lifeExp)) +
+  geom_point(alpha=0.7) +
+  scale_x_log10()
+g
+```
+
+```{r, live=TRUE}
+g + transition_time(year) +
+  labs(title="Year: {frame_time}", x="GDP per capita", y="Life expectancy")
+```
+
+The date is included in the title, but we can argue that:
+
+- it is small
+- it is outside of the graph
+- it prevents using the title for telling more things.
+
+It is much more visual and impactful to include the varying data on the same graph through an extra layer: for example, a textual annotation with `geom_text()`.
+
+Moreover, there is another issue: we get frames for non-existent `year` values! That's because `transition_time()` interpolates numeric data.
+To solve this, we change `year` to a factor and switch to `transition_states`.
+
+```{r, live=TRUE}
+g + geom_text(aes(x=max(gdpPercap), y=min(lifeExp), label=as.factor(year)),
+                  hjust=1, vjust=-0.2, 
+                  col="gray", alpha=0.2,
+                  size=20) +
+  transition_states(as.factor(year), state_length=0) # try also wrap=FALSE
+```
+
+To avoid the interpolation of the data points as well, we need to set a global `group` aesthetics - as we did before on the Iris data:
+
+```{r, live=TRUE}
+g_grp <- ggplot(gapminder, aes(gdpPercap, lifeExp, group=seq_along(year))) +
+  geom_point(alpha=0.7) +
+  scale_x_log10()
+
+g_grp +
+  geom_text(aes(x=max(gdpPercap), y=min(lifeExp), label=as.factor(year)),
+            hjust=1, vjust=-0.2, 
+            col="gray", alpha=0.2,
+            size=20) +
+  transition_states(as.factor(year), state_length=0)
+```
+
+
+To highlight evolution, we can use `transition_reveal()`: let's see an example of the evolution of the Italian GDP per capita over time.
+
+```{r}
+g_static <- gapminder %>% filter(country == "Italy") %>% 
+  ggplot(aes(year, gdpPercap)) +
+  geom_point() +
+  geom_line() +
+  theme_minimal()
+g_static
+g_static + transition_reveal(year)
+
+# to keep the points, we give them a unique group;
+# we also highlight the "running" point in red
+g_static2 <- gapminder %>% filter(country == "Italy") %>% 
+  ggplot(aes(year, gdpPercap)) +
+  geom_point(aes(group=seq_along(year))) + # these points are kept
+  geom_point(color="red") + # this is the "running" point
+  geom_line() +
+  theme_minimal()
+g_static2
+g_static2 + transition_reveal(year)
+```
+
+
+
+## Saving animations
+
+When you print a `gganimate` object, in the background the function `animate()` is called,  which renders the frame and passes the frames to a renderer function which takes care of combining them to the final animation. In other words, this is equivalent to directly printing a `gganimate` object:
+
+```{r, eval=FALSE}
+anim <- g + transition_time(year)
+animate(anim)
+```
+
+The default renderer is `gifski_renderer`, which outputs a GIF. To create video files you can use the `ffmpeg_renderer()`:
+
+```{r, eval=FALSE}
+animate(anim, renderer=ffmpeg_renderer())
+```
+
+If you want to save your animation to a file, use the `anim_save()` function:
+
+```{r, eval=FALSE}
+anim_save(filename="dynamic_scatterplot.gif", animation=last_animation())
+```
+
+You can pass a `gganimate` object to `animation`, otherwise the last animation is used.
+
+
+
+# Assignment
+
+1. Download the "COVID-19 Deaths" data set in CSV format from "Our World in Data": [source](https://ourworldindata.org/covid-deaths).
+
+2. Subset the data on five countries that interest you for any reason.
+
+3. Create an animated line plot of the number of new COVID-19 deaths per 100K people, similar to the one below.
+
+```{r, echo=FALSE}
+knitr::include_graphics("https://drive.google.com/uc?id=1GHl7xNUfVnrS7-qiDeohDWOxKp2Ue495")
+```
+
+
+```{r, live=TRUE}
+
+```
+
+
+# License
+
+These materials were partly abridged from [r.statistics.co](https://r.statistics.co).
